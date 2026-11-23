@@ -10,13 +10,20 @@ vi.mock('react', async (original) => ({ ...await original<typeof import('react')
   }
 }))
 const census = vi.hoisted(() => ({
-  state: {} as any, phase: 'normal', now: 1, foreground: [] as string[],
-  statusVisits: 0, tabVisits: 0, bindingCopies: 0, boundaryCopies: 0, plannerStatuses: 0, plannerTabs: 0,
+  owner: 'non-runtime' as 'non-runtime' | 'ambiguous', state: {} as any, phase: 'normal', now: 1, foreground: [] as string[],
+  ownerPtyChecks: 0, statusVisits: 0, tabVisits: 0, bindingCopies: 0, boundaryCopies: 0, plannerStatuses: 0, plannerTabs: 0,
   slept: 0, rechecks: 0, changeDuringAdmission: false
 }))
+vi.mock('../../../../../shared/remote-runtime/remote-runtime-pty-id', async (original) => {
+  const real = await original<typeof import('../../../../../shared/remote-runtime/remote-runtime-pty-id')>()
+  return { ...real, isRemoteRuntimePtyId: (id: string) => {
+    if (census.phase === 'final') census.ownerPtyChecks++
+    return real.isRemoteRuntimePtyId(id)
+  } }
+})
 vi.mock('@/store/index', () => ({ useAppStore: { getState: () => census.state } }))
 vi.mock('../../workspace/ownership/terminal-worktree-route', () => ({
-  resolveTerminalPtyOwner: () => ({ kind: 'non-runtime' })
+  resolveTerminalPtyOwner: () => ({ kind: census.owner })
 }))
 vi.mock('../../pane-manager/mobile-driver-state', () => ({ getAllDrivers: () => new Map() }))
 vi.mock('../../../components/terminal-pane/parking/retention/foreground-terminal-tabs', () => ({
@@ -60,7 +67,12 @@ import { recordHibernationBoundaryResolved } from './agent-hibernation-pane-age'
 
 afterEach(() => { stopAgentHibernationCoordinator(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
-it.each([{n:100, concentrated:false}, {n:1000, concentrated:false}, {n:100, concentrated:true}, {n:1000, concentrated:true}])('real final sleep recheck at $n, concentrated=$concentrated', async ({n, concentrated}) => {
+const populations = [100, 1000].flatMap(n =>
+  [false, true].flatMap(concentrated =>
+    (['non-runtime', 'ambiguous'] as const).map(owner => ({ n, concentrated, owner }))
+  )
+)
+it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated, owner=$owner', async ({n, concentrated, owner}) => {
   vi.useFakeTimers()
   const leaf = '11111111-1111-4111-8111-111111111111'
   const tabsByWorktree: any = {}, terminalLayoutsByTabId: any = {}, ptyIdsByTabId: any = {}
@@ -79,7 +91,7 @@ it.each([{n:100, concentrated:false}, {n:1000, concentrated:false}, {n:100, conc
     })
   }
   for (const tabs of Object.values(tabsByWorktree) as any[]) {
-    for (const method of ['filter', 'flatMap'] as const) {
+    for (const method of ['filter', 'flatMap', 'map', 'some', 'find'] as const) {
       const original = tabs[method].bind(tabs)
       tabs[method] = (callback: any) => original((...args: any[]) => {
         if (census.phase === 'final') census.tabVisits++
@@ -112,8 +124,8 @@ it.each([{n:100, concentrated:false}, {n:1000, concentrated:false}, {n:100, conc
       census.phase = 'normal'
     }
   }
-  Object.assign(census, { phase: 'normal', now: 1, foreground: [], slept: 0, rechecks: 0,
-    statusVisits: 0, tabVisits: 0, bindingCopies: 0, boundaryCopies: 0, plannerStatuses: 0, plannerTabs: 0, changeDuringAdmission: false })
+  Object.assign(census, { owner, phase: 'normal', now: 1, foreground: [], slept: 0, rechecks: 0,
+    ownerPtyChecks: 0, statusVisits: 0, tabVisits: 0, bindingCopies: 0, boundaryCopies: 0, plannerStatuses: 0, plannerTabs: 0, changeDuringAdmission: false })
   startAgentHibernationCoordinator({ now: () => census.now })
   await runAgentHibernationTick()
   for (let i = 0; i < n * 3; i++) recordHibernationBoundaryResolved(`tab-${i}:${leaf}`, 1)
@@ -127,8 +139,9 @@ it.each([{n:100, concentrated:false}, {n:1000, concentrated:false}, {n:100, conc
   expect(census.boundaryCopies).toBe(1)
   expect(census.plannerStatuses).toBe(1)
   expect(census.plannerTabs).toBe(1)
-  expect(census.tabVisits).toBe(5 * (concentrated ? n : 1))
-  console.log('BENCH final-recheck', JSON.stringify({ head: '79678e1d774aa78218446b70947bef30e8eac7a2', agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits,
+  expect(census.tabVisits).toBe(0)
+  expect(census.ownerPtyChecks).toBe(0)
+  console.log('BENCH final-recheck', JSON.stringify({ head: 'f1b8a74b2c7de87e7c4dcde271557beeb2133216', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true
@@ -157,4 +170,26 @@ it.each([100, 1000])('held-mail card subscriptions at %i workspaces', async (n) 
   applySleepingMailWorktrees({ worktreeIds: [] })
   expect(cards.entries.reduce((sum, e) => sum + e.calls, 0)).toBe(0)
   console.log('BENCH renderer-cards', n, JSON.stringify({ subscriptions: n, localChangeCallbacks: 1, unrelatedChangeCallbacks: 0, teardownCallbacks: 0 }))
+})
+
+it.each([100, 1000])('ambiguous owner projection cache invalidates at %i PTYs', async (n) => {
+  const { resolveAgentHibernationRuntimeOwner } = await import('./agent-hibernation-host-evidence')
+  census.owner = 'ambiguous'; census.phase = 'final'; census.ownerPtyChecks = 0
+  const tabs = Array.from({length:n}, (_,i)=>({id:'cache-'+i}))
+  const state = { tabsByWorktree:{wt:tabs}, ptyIdsByTabId:Object.fromEntries(tabs.map(t=>[t.id,['local-'+t.id]])) } as any
+  expect(resolveAgentHibernationRuntimeOwner(state,'wt')).toEqual({kind:'non-runtime'})
+  const cold = census.ownerPtyChecks
+  for(let i=0;i<n;i++) resolveAgentHibernationRuntimeOwner(state,'wt')
+  expect(census.ownerPtyChecks).toBe(cold)
+  state.ptyIdsByTabId = {...state.ptyIdsByTabId, 'cache-0':['remote:host-a@@pty']}
+  expect(resolveAgentHibernationRuntimeOwner(state,'wt')).toEqual({kind:'runtime', environmentId:'host-a'})
+  const changedBindings = census.ownerPtyChecks
+  for(let i=0;i<n;i++) resolveAgentHibernationRuntimeOwner(state,'wt')
+  expect(census.ownerPtyChecks).toBe(changedBindings)
+  state.tabsByWorktree = {wt:tabs.slice(1)}
+  expect(resolveAgentHibernationRuntimeOwner(state,'wt')).toEqual({kind:'non-runtime'})
+  state.ptyIdsByTabId = {...state.ptyIdsByTabId, 'cache-1':['remote:host-a@@pty'], 'cache-2':['remote:host-b@@pty']}
+  expect(resolveAgentHibernationRuntimeOwner(state,'wt')).toEqual({kind:'unresolved'})
+  census.phase='normal'
+  console.log('BENCH owner-cache', JSON.stringify({ptys:n,coldVisits:cold,unchangedRepeatedVisits:0,changedBindingInvalidated:true,changedTabsInvalidated:true,multipleOwnersRefused:true}))
 })

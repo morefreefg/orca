@@ -47,6 +47,6 @@ it.each([10000, 100000])('cold sleep-mail schema on %i historical messages', (n)
     const existingSchemaOpenMs = performance.now() - warmStart
     const existingIndexDdlMs = indexDdl.reduce((sum, value) => sum + value, 0)
     indexProbe.mockRestore()
-    console.log('BENCH cold-schema', JSON.stringify({ head: '79678e1d774aa78218446b70947bef30e8eac7a2', messages: n, bytes, coldOpenMs, newIndexDdlMs, newIndexDdlCalls, existingSchemaOpenMs, existingIndexDdlMs, plan }))
+    console.log('BENCH cold-schema', JSON.stringify({ head: 'f1b8a74b2c7de87e7c4dcde271557beeb2133216', messages: n, bytes, coldOpenMs, newIndexDdlMs, newIndexDdlCalls, existingSchemaOpenMs, existingIndexDdlMs, plan }))
   } finally { vi.restoreAllMocks(); db?.close(); rmSync(directory, { recursive: true, force: true }) }
 }, 120000)

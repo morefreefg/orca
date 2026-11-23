@@ -8,7 +8,7 @@ import { SleptMailboxWake } from './slept-mailbox-wake'
 import type { SleepingAgentSessionRecord } from '../../../../../shared/agent-session/lifecycle/agent-session-resume'
 import type { RuntimeNotifier } from '../../../client/events/runtime-notifier-contract'
 
-const HEAD = '79678e1d774aa78218446b70947bef30e8eac7a2'
+const HEAD = 'f1b8a74b2c7de87e7c4dcde271557beeb2133216'
 function sleeper(i: number, manual = true): SleepingAgentSessionRecord {
   const leaf = `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`
   return { paneKey: `tab-${i}:${leaf}`, tabId: `tab-${i}`, worktreeId: `folder:${i}`,
@@ -126,6 +126,27 @@ it.each([100, 1000])('scoped and availability work with %i held panes', async (s
     expect(m.bell.mock.calls[0][0].held).toHaveLength(0)
     console.log('BENCH held-burst', HEAD, s, JSON.stringify({ changes: 50,
       publications: m.bell.mock.calls.length, publishedIds: m.bell.mock.calls[0][0].held.length + m.bell.mock.calls[0][0].released.length }))
+    // The bridge declines changes while its renderer document reloads. Unchanged mail must not rebuild the full set.
+    m.bell.mockReturnValue(false)
+    m.db.markAsRead(m.db.getUndeliveredUnreadMessages(m.mailboxes[51]).map(row => row.id), {kind:'orca'})
+    await flush()
+    m.bell.mockClear()
+    const snapshot = vi.spyOn((m.runtime as any).sleptMailboxWake, 'heldWorktrees')
+    for (let i=0; i<10; i++) {
+      m.db.crewChanges.notify(Object.assign(new Set(['traffic'] as const), {trafficAddresses:new Set(['run:unrelated-drop-'+i])}))
+      await flush()
+    }
+    m.db.markAsRead(m.db.getUndeliveredUnreadMessages(m.mailboxes[52]).map(row => row.id), {kind:'orca'})
+    await flush()
+    expect(snapshot).toHaveBeenCalledTimes(0)
+    expect(m.bell).toHaveBeenCalledTimes(0)
+    const rebuiltIds = m.bell.mock.calls.reduce((sum, [change]) => sum + change.worktreeIds.length, 0)
+    expect(rebuiltIds).toBe(0)
+    console.log('BENCH dropped-window', HEAD, s, JSON.stringify({ unrelatedEvents:10, fullRebuilds:snapshot.mock.calls.length, unchangedRebuiltIds:rebuiltIds }))
+    m.bell.mockReturnValue(true); m.bell.mockClear()
+    m.runtime.resendSleepingMailWorktrees(); await flush()
+    expect(m.bell).toHaveBeenCalledTimes(1)
+    expect(m.bell.mock.calls[0][0].worktreeIds).toHaveLength(s-53)
     m.empty(); await flush()
     console.log('BENCH teardown', s, JSON.stringify({ sessionListeners: (sessionCrewChanges as any).listeners.size }))
     expect((sessionCrewChanges as any).listeners.size).toBe(listenersHeld - 1)
@@ -156,7 +177,7 @@ it.each([100, 1000])('real slept-handle wait census and burst joins at %i panes'
     const unrelatedChecks = checks.mock.calls.length
     expect(unrelatedChecks).toBe(0)
     console.log('BENCH wait-fanout', HEAD, s, JSON.stringify({ unrelatedIdentityEvents: 10, unrelatedIdentityChecks: unrelatedChecks, checksPerEvent: unrelatedChecks / 10,
-      pendingWaits: (m.runtime as any).wokenHandleChecks.size, runtimeCrewListeners: (m.runtime as any).crewChanges.listeners.size }))
+      pendingWaits: (m.runtime as any).sleptWaits.size, runtimeCrewListeners: (m.runtime as any).crewChanges.listeners.size }))
     checks.mockClear()
     for (let event = 0; event < 10; event++) {
       await m.runtime.syncWindowGraph(1, { tabs: [...tabs, {
@@ -182,7 +203,7 @@ it.each([100, 1000])('real slept-handle wait census and burst joins at %i panes'
     }
     const dropChecks = checks.mock.calls.length
     console.log('BENCH unrelated-leaf-drop', HEAD, s, JSON.stringify({ events: 10, checks: dropChecks, checksPerEvent: dropChecks / 10 }))
-    expect(dropChecks).toBe(10 * s)
+    expect(dropChecks).toBe(0)
     cancel.abort(); await Promise.all(waiting)
     // Exercise real shared wake map, workspace command queue, handle watcher and join deadlines.
     // The external process/readiness boundary is controlled; no agent process is spawned.
@@ -206,11 +227,12 @@ it.each([100, 1000])('real slept-handle wait census and burst joins at %i panes'
     expect(await Promise.all(joined)).toHaveLength(10 * s)
     expect(resumes).toHaveBeenCalledTimes(s)
     expect((m.runtime as any).sleptAgentWakes.size).toBe(0)
+    expect((m.runtime as any).sleptWakesByPane.size).toBe(0)
     await flush()
-    expect((m.runtime as any).wokenHandleChecks.size).toBe(0)
-    expect((m.runtime as any).stopWatchingWokenHandles).toBe(null)
+    expect((m.runtime as any).sleptWaits.size).toBe(0)
+    expect((m.runtime as any).sleptWaits.stopWatching).toBe(null)
     console.log('BENCH burst', HEAD, s, JSON.stringify({ callers: 10 * s, resumes: resumes.mock.calls.length,
-      retainedJoins: (m.runtime as any).sleptAgentWakes.size, retainedWaits: (m.runtime as any).wokenHandleChecks.size }))
+      retainedJoins: (m.runtime as any).sleptAgentWakes.size, retainedWaits: (m.runtime as any).sleptWaits.size }))
   } finally { cancel.abort(); m.empty(); await flush(); m.runtime.setNotifier(null); m.db.close() }
 }, 120000)
 
@@ -248,4 +270,90 @@ it.each([100, 1000])('mail wake queue admits once per pane at %i panes', async (
     console.log('BENCH mail-burst', HEAD, s, JSON.stringify({ requests: 10 * s, resumes, maxActive,
       retainedPending: (queue as any).pending.size, retainedInFlight: (queue as any).inFlight.size }))
   } finally { release?.(); db.close() }
+}, 120000)
+
+// PR #44113: count graph searches inside the real check when waited leaves leave together.
+it.each([100, 1000])('closing waited leaves at %i panes', async (s) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] })
+  const m = mount(s, false, false)
+  const records = Object.values(m.records)
+  const tabs = records.map((r) => ({ tabId: r.tabId!, worktreeId: r.worktreeId, title: 'Agent', activeLeafId: r.paneKey.split(':')[1], layout: null }))
+  const leaves = records.map((r) => ({ tabId: r.tabId!, worktreeId: r.worktreeId, leafId: r.paneKey.split(':')[1], paneRuntimeId: 1, ptyId: null }))
+  const cancel = new AbortController()
+  const internals = m.runtime as any
+  let waiting: Promise<unknown>[] = []
+  try {
+    await m.initialGraph
+    await m.runtime.syncWindowGraph(1, { tabs, leaves })
+    await vi.advanceTimersByTimeAsync(5000)
+    const handles = records.map((r) => m.runtime.getTerminalHandleForPaneKey(r.paneKey)!)
+    expect(new Set(handles).size).toBe(s)
+    waiting = handles.map((handle) => m.runtime.waitForTerminal(handle, { condition: 'exit', signal: cancel.signal }).catch(() => undefined))
+    expect(internals.sleptWaits.size).toBe(s)
+    let leafVisits = 0
+    const realCheck = internals.sleptPaneState.bind(m.runtime)
+    const checks = vi.spyOn(internals, 'sleptPaneState').mockImplementation((...args: unknown[]) => {
+      const graphLeaves = internals.leaves
+      const originals = [Symbol.iterator, 'entries', 'values'].map(name => [name, graphLeaves[name]] as const)
+      for (const [name, original] of originals) graphLeaves[name] = function* () {
+        for (const leaf of { [Symbol.iterator]: () => original.call(graphLeaves) }) { leafVisits++; yield leaf }
+      }
+      try { return realCheck(...args) } finally { for (const [name, original] of originals) graphLeaves[name] = original }
+    })
+    await m.runtime.syncWindowGraph(1, { tabs: tabs.slice(0, s / 2), leaves: leaves.slice(0, s / 2) })
+    await flush()
+    console.log('BENCH waited-leaf-close', HEAD, s, JSON.stringify({ droppedWaitedLeaves: s / 2, remainingLeaves: s / 2, checks: checks.mock.calls.length, leafVisits }))
+    expect(checks.mock.calls.length).toBe(s / 2)
+    expect(leafVisits).toBe(s / 2)
+    // Saved records disappearing completes the removed panes' exit waits; survivors still wait.
+    m.empty(); await flush()
+    expect(internals.sleptWaits.size).toBe(s / 2)
+    cancel.abort(); await Promise.all(waiting)
+    expect(internals.sleptWaits.size).toBe(0)
+    expect(internals.terminalIdentity.handleTouches.listeners.size).toBe(0)
+    expect(internals.terminalIdentity.handleTouches.leafListeners.size).toBe(0)
+  } finally { cancel.abort(); await Promise.all(waiting); m.empty(); await flush(); m.runtime.setNotifier(null); m.db.close() }
+}, 120000)
+
+it.each([100, 1000])('retained mail settlement during %i unrelated explicit wakes', async (n) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] })
+  const m = mount(2*n, false, false)
+  const records = Object.values(m.records)
+  const internals = m.runtime as any
+  let release!: () => void
+  const barrier = new Promise<void>(resolve => { release = resolve })
+  const joined: Promise<unknown>[] = []
+  try {
+    await m.initialGraph
+    await m.runtime.syncWindowGraph(1, {
+      tabs: records.map(r => ({ tabId: r.tabId!, worktreeId: r.worktreeId, title: 'Agent', activeLeafId: r.paneKey.split(':')[1], layout: null })),
+      leaves: records.map(r => ({ tabId: r.tabId!, worktreeId: r.worktreeId, leafId: r.paneKey.split(':')[1], paneRuntimeId: 1, ptyId: null }))
+    })
+    await vi.advanceTimersByTimeAsync(5000)
+    const handles = records.slice(0,n).map(r => m.runtime.getTerminalHandleForPaneKey(r.paneKey)!)
+    m.runtime.setNotifier(notify({ resumeSleepingAgents: async () => { await barrier; return true } }))
+    vi.spyOn(internals.terminalWait, 'wait').mockImplementation(async (handle: string) => ({handle, satisfied: true, status: 'running'}))
+    joined.push(...handles.map(handle => m.runtime.wakeSleptAgentHandle(handle, {})!))
+    await flush()
+    for (const record of records.slice(n)) expect(internals.mailWakeAttempts.claim(record)).toBeTruthy()
+    let visited = 0
+    const wakes = internals.sleptAgentWakes
+    const original = wakes.values
+    wakes.values = function* () { for (const entry of original.call(wakes)) { visited++; yield entry } }
+    internals.publishSleepingMail({panes: records.slice(n).map(r => r.paneKey)})
+    await flush()
+    wakes.values = original
+    expect(visited).toBe(0)
+    expect(internals.mailWakeAttempts.size).toBe(0)
+    console.log('BENCH retained-overlap', HEAD, JSON.stringify({ retainedAttempts: n, explicitWakes: n, custodyEntryVisits: visited, settledAttempts: n }))
+    release(); await flush()
+    for (let i=0; i<n; i++) {
+      const old = internals.terminalIdentity.handles.get(handles[i])
+      internals.recordPtyWorktree('overlap-resumed-'+i, records[i].worktreeId, {connected:true})
+      internals.terminalIdentity.setHandle(handles[i], {...old, ptyId:'overlap-resumed-'+i})
+    }
+    await flush(); await Promise.all(joined)
+    expect(internals.sleptAgentWakes.size).toBe(0)
+    expect(internals.sleptWakesByPane.size).toBe(0)
+  } finally { release?.(); m.empty(); await flush(); m.runtime.setNotifier(null); m.db.close() }
 }, 120000)
