@@ -8,7 +8,7 @@ import { SleptMailboxWake } from './slept-mailbox-wake'
 import type { SleepingAgentSessionRecord } from '../../../../../shared/agent-session/lifecycle/agent-session-resume'
 import type { RuntimeNotifier } from '../../../client/events/runtime-notifier-contract'
 
-const HEAD = '28d8654eb7880286977bb84cec7cfb543376159f'
+const HEAD = '79678e1d774aa78218446b70947bef30e8eac7a2'
 function sleeper(i: number, manual = true): SleepingAgentSessionRecord {
   const leaf = `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`
   return { paneKey: `tab-${i}:${leaf}`, tabId: `tab-${i}`, worktreeId: `folder:${i}`,
@@ -112,9 +112,9 @@ it.each([100, 1000])('scoped and availability work with %i held panes', async (s
     m.db.markAsRead(consumed, { kind: 'orca' })
     await flush()
     expect(m.bell).toHaveBeenCalledTimes(1)
-    expect(m.bell.mock.calls[0][0]).toHaveLength(s - 1)
+    expect(m.bell.mock.calls[0][0]).toEqual({ held: [], released: ['folder:0'] })
     console.log('BENCH held-local-change', HEAD, s, JSON.stringify({ changedWorkspaces: 1,
-      publications: m.bell.mock.calls.length, publishedIds: m.bell.mock.calls[0][0].length,
+      publications: m.bell.mock.calls.length, publishedIds: m.bell.mock.calls[0][0].held.length + m.bell.mock.calls[0][0].released.length,
       payloadBytes: Buffer.byteLength(JSON.stringify(m.bell.mock.calls[0][0])) }))
     m.bell.mockClear()
     for (const mailbox of m.mailboxes.slice(1, 51)) {
@@ -122,9 +122,10 @@ it.each([100, 1000])('scoped and availability work with %i held panes', async (s
     }
     await flush()
     expect(m.bell).toHaveBeenCalledTimes(1)
-    expect(m.bell.mock.calls[0][0]).toHaveLength(s - 51)
+    expect(m.bell.mock.calls[0][0].released).toHaveLength(50)
+    expect(m.bell.mock.calls[0][0].held).toHaveLength(0)
     console.log('BENCH held-burst', HEAD, s, JSON.stringify({ changes: 50,
-      publications: m.bell.mock.calls.length, publishedIds: m.bell.mock.calls[0][0].length }))
+      publications: m.bell.mock.calls.length, publishedIds: m.bell.mock.calls[0][0].held.length + m.bell.mock.calls[0][0].released.length }))
     m.empty(); await flush()
     console.log('BENCH teardown', s, JSON.stringify({ sessionListeners: (sessionCrewChanges as any).listeners.size }))
     expect((sessionCrewChanges as any).listeners.size).toBe(listenersHeld - 1)
@@ -165,11 +166,23 @@ it.each([100, 1000])('real slept-handle wait census and burst joins at %i panes'
       await flush()
     }
     const graphChecks = checks.mock.calls.length
-    expect(graphChecks).toBe(10 * s)
+    expect(graphChecks).toBe(0)
     console.log('BENCH graph-fanout', HEAD, s, JSON.stringify({
       unrelatedTitlePublications: 10, checks: graphChecks, checksPerPublication: graphChecks / 10,
       handleTouchListeners: (m.runtime as any).terminalIdentity.handleTouches.listeners.size
     }))
+    checks.mockClear()
+    const extraLeaf = { tabId: 'unrelated-tab', worktreeId: 'folder:unrelated',
+      leafId: '99999999-1111-4111-8111-111111111111', paneRuntimeId: 1, ptyId: null }
+    for (let event = 0; event < 10; event++) {
+      await m.runtime.syncWindowGraph(1, { tabs: [...tabs, { tabId: 'unrelated-tab', worktreeId: 'folder:unrelated', title: 'Other', activeLeafId: extraLeaf.leafId, layout: null }], leaves: [...leaves, extraLeaf] })
+      await flush()
+      await m.runtime.syncWindowGraph(1, { tabs: [...tabs, { tabId: 'unrelated-tab', worktreeId: 'folder:unrelated', title: 'Other', activeLeafId: null, layout: null }], leaves })
+      await flush()
+    }
+    const dropChecks = checks.mock.calls.length
+    console.log('BENCH unrelated-leaf-drop', HEAD, s, JSON.stringify({ events: 10, checks: dropChecks, checksPerEvent: dropChecks / 10 }))
+    expect(dropChecks).toBe(10 * s)
     cancel.abort(); await Promise.all(waiting)
     // Exercise real shared wake map, workspace command queue, handle watcher and join deadlines.
     // The external process/readiness boundary is controlled; no agent process is spawned.
