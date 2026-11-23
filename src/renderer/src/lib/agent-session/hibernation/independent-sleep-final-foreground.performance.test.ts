@@ -29,8 +29,8 @@ vi.mock('../../pane-manager/mobile-driver-state', () => ({ getAllDrivers: () => 
 vi.mock('../../../components/terminal-pane/parking/retention/foreground-terminal-tabs', async (original) => {
   const real = await original<typeof import('../../../components/terminal-pane/parking/retention/foreground-terminal-tabs')>()
   return { ...real, getForegroundTerminalTabIds: () => census.foreground,
-    getForegroundTerminalTabLastSeenAtById: () => {
-      const snapshot = real.getForegroundTerminalTabLastSeenAtById()
+    getForegroundTerminalTabLastSeenAtById: (onlyTabId?: string) => {
+      const snapshot = real.getForegroundTerminalTabLastSeenAtById(onlyTabId)
       if (census.phase === 'final') census.foregroundCopies += Object.keys(snapshot).length
       return snapshot
     }
@@ -79,6 +79,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   vi.setSystemTime(1)
   const foreground = await import('../../../components/terminal-pane/parking/retention/foreground-terminal-tabs')
   const historyIds = Array.from({length: n * 7.5}, (_, i) => `history-${i}`)
+  historyIds[0] = 'tab-0'
   foreground.setForegroundTerminalTabIds(historyIds)
   foreground.setForegroundTerminalTabIds([])
   const leaf = '11111111-1111-4111-8111-111111111111'
@@ -142,8 +143,8 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   await runAgentHibernationTick()
   expect(census.slept).toBe(1)
   expect(census.rechecks).toBe(1)
-  expect(census.foregroundCopies).toBe(n * 7.5)
-  console.log('BENCH final-foreground-copies', JSON.stringify({head: '22ca84dded198ded40a3d2093f934d6b9c3f8479', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
+  expect(census.foregroundCopies).toBe(1)
+  console.log('BENCH final-foreground-copies', JSON.stringify({head: 'd1eb8c9d8b9bbf06803f667085d2c942b8c26a32', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
   expect(census.statusVisits).toBe(2)
   expect(census.bindingCopies).toBe(1)
   expect(census.boundaryCopies).toBe(1)
@@ -151,7 +152,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.plannerTabs).toBe(1)
   expect(census.tabVisits).toBe(0)
   expect(census.ownerPtyChecks).toBe(0)
-  console.log('BENCH final-recheck', JSON.stringify({ head: '22ca84dded198ded40a3d2093f934d6b9c3f8479', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
+  console.log('BENCH final-recheck', JSON.stringify({ head: 'd1eb8c9d8b9bbf06803f667085d2c942b8c26a32', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true

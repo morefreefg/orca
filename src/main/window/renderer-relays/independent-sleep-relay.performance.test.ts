@@ -34,7 +34,7 @@ it.each([100, 1000])('native sleeping wake reply routing at %i pending requests'
   expect(ipcMain.listenerCount('ui:resumeSleepingAgentsReply')).toBe(0)
   expect(web.listenerCount('destroyed')).toBe(0)
   expect(window.listenerCount('closed')).toBe(0)
-  console.log('BENCH native-replies', JSON.stringify({ head: '22ca84dded198ded40a3d2093f934d6b9c3f8479', requests: n,
+  console.log('BENCH native-replies', JSON.stringify({ head: 'd1eb8c9d8b9bbf06803f667085d2c942b8c26a32', requests: n,
     unrelatedReplyComparisons: 1, successfulReplyComparisons: comparisons, nativeReplyListeners: 1, listenersAfter: 0 }))
 })
 

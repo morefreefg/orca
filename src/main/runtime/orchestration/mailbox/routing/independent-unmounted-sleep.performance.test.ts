@@ -4,7 +4,7 @@ import { OrchestrationDb } from '../../db/orchestration-db'
 import { partialRuntimeStore } from '../../../construction/test-context/runtime-store-partial-fixture'
 import { getDefaultWorkspaceSession } from '../../../../../shared/orca-profiles/constants'
 
-const HEAD = '22ca84dded198ded40a3d2093f934d6b9c3f8479'
+const HEAD = 'd1eb8c9d8b9bbf06803f667085d2c942b8c26a32'
 const noop = () => {}
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 

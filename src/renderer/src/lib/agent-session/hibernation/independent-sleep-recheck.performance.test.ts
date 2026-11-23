@@ -141,7 +141,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.plannerTabs).toBe(1)
   expect(census.tabVisits).toBe(0)
   expect(census.ownerPtyChecks).toBe(0)
-  console.log('BENCH final-recheck', JSON.stringify({ head: '22ca84dded198ded40a3d2093f934d6b9c3f8479', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
+  console.log('BENCH final-recheck', JSON.stringify({ head: 'd1eb8c9d8b9bbf06803f667085d2c942b8c26a32', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true
