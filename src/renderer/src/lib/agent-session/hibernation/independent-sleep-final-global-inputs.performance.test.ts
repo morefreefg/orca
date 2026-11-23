@@ -161,7 +161,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
       return keys
     }
   })
-  stamps[`tab-0:${leaf}`] = 1
+  stamps[`tab-0:${leaf}`] = 0
   census.state = {
     settings: { experimentalAgentHibernation: true, agentHibernationIdleMs: 60000 },
     tabsByWorktree, terminalLayoutsByTabId, ptyIdsByTabId, agentStatusByPaneKey: statuses,

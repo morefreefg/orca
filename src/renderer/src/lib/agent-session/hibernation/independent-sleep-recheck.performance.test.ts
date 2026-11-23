@@ -25,7 +25,7 @@ vi.mock('@/store/index', () => ({ useAppStore: { getState: () => census.state } 
 vi.mock('../../workspace/ownership/terminal-worktree-route', () => ({
   resolveTerminalPtyOwner: () => ({ kind: census.owner })
 }))
-vi.mock('../../pane-manager/mobile-driver-state', () => ({ getAllDrivers: () => new Map() }))
+vi.mock('../../pane-manager/mobile-driver-state', () => ({ getAllDrivers: () => new Map(), getDriverForPty: () => ({ kind: 'idle' }) }))
 vi.mock('../../../components/terminal-pane/parking/retention/foreground-terminal-tabs', () => ({
   getForegroundTerminalTabIds: () => census.foreground,
   getForegroundTerminalTabLastSeenAtById: () => ({})
