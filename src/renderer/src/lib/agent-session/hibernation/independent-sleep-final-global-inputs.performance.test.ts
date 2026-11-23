@@ -84,8 +84,8 @@ import { setDriverForPty, hydrateDrivers } from '../../pane-manager/mobile-drive
 
 afterEach(() => { flushTerminalInputActivity(); hydrateDrivers([]); stopAgentHibernationCoordinator(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
-const populations = [100, 1000].map(n => ({ n, concentrated: false, owner: 'non-runtime' as const }))
-it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated, owner=$owner', async ({n, concentrated, owner}) => {
+const populations = [100, 1000].flatMap(n => [0, n - 1].map(extraSplits => ({ n, extraSplits, concentrated: false, owner: 'non-runtime' as const })))
+it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated, owner=$owner, extraSplits=$extraSplits', async ({n, concentrated, owner, extraSplits}) => {
   vi.useFakeTimers()
   vi.setSystemTime(1)
   const foreground = await import('../../../components/terminal-pane/parking/retention/foreground-terminal-tabs')
@@ -109,6 +109,22 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
       providerSession: { key: 'session_id', id: `conversation-${i}` }, prompt: '', stateHistory: []
     })
   }
+  // The target tab can hold many real split leaves; its one completed agent alone is rechecked.
+  const targetLayout = terminalLayoutsByTabId['tab-0']
+  const splitLeaves = [{ type: 'leaf', leafId: leaf }]
+  for (let i = 1; i <= extraSplits; i++) {
+    const siblingLeaf = `${String(i).padStart(8, '0')}-2222-4222-8222-222222222222`
+    const ptyId = `split-pty-${i}`
+    targetLayout.ptyIdsByLeafId[siblingLeaf] = ptyId
+    ptyIdsByTabId['tab-0'].push(ptyId)
+    splitLeaves.push({ type: 'leaf', leafId: siblingLeaf })
+  }
+  const splitTree = (leaves: typeof splitLeaves): any => {
+    if (leaves.length === 1) return leaves[0]
+    const midpoint = Math.floor(leaves.length / 2)
+    return { type: 'split', direction: 'horizontal', first: splitTree(leaves.slice(0, midpoint)), second: splitTree(leaves.slice(midpoint)) }
+  }
+  targetLayout.root = splitTree(splitLeaves)
   for (const tabs of Object.values(tabsByWorktree) as any[]) {
     for (const method of ['filter', 'flatMap', 'map', 'some', 'find'] as const) {
       const original = tabs[method].bind(tabs)
@@ -133,6 +149,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   const attention = vi.fn(async () => ({}))
   vi.stubGlobal('window', { api: { pty: { getTerminalAttention: attention }, ui: { notifySleepingMailAvailability: () => {} } } })
   for (let i = 0; i < n * 3; i++) setDriverForPty(`pty-${i}`, { kind: 'desktop' })
+  for (let i = 1; i <= extraSplits; i++) setDriverForPty(`split-pty-${i}`, { kind: 'desktop' })
   const stamps = new Proxy(Object.fromEntries(Array.from({ length: n * 7.5 }, (_, i) => [`input-${i}`, 1])), {
     get(target, key, receiver) {
       if (census.phase === 'final') census.inputReads++
@@ -179,9 +196,9 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.foregroundCopies).toBe(1)
   expect(census.driverCopies).toBe(0)
   expect(census.inputCopies).toBe(0)
-  expect(census.driverReads).toBe(1)
+  expect(census.driverReads).toBe(1 + extraSplits)
   expect(census.inputReads).toBe(1)
-  console.log('BENCH final-global-input-copies', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
+  console.log('BENCH final-global-input-copies', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3 + extraSplits, targetTabPtys: 1 + extraSplits, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
   console.log('BENCH final-foreground-copies', JSON.stringify({head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
   expect(census.statusVisits).toBe(2)
   expect(census.bindingCopies).toBe(1)
