@@ -61,7 +61,7 @@ it.each([100, 1000])('targeted mounted resume cleanup among %i distinct conversa
     await Promise.all(pending)
     expect(visits).toBe(n)
     expect(store.state.clearSleepingAgentSession).not.toHaveBeenCalled()
-    console.log('BENCH resume-cleanup', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4',
+    console.log('BENCH resume-cleanup', JSON.stringify({ head: '01b073c12d1d9328cbb71b584e9b7396dad7122a',
       sleptConversations: n, singleTargetSiblingRecordVisits: single, burstTargets: n, burstRecordVisits: visits, duplicateRecords: 0, requiredRemovals: 0 }))
   } finally { releases.forEach(release => release()) }
 })

@@ -30,12 +30,12 @@ it.each([100, 1000].flatMap(n => [false, true].map(listening => ({ n, listening 
         { sessionTabs: after, records: new Map() } as never,
         { records: { upsert: [], remove: [] }, sessionTabs: {} } as never
       )
-      expect(copiedIds).toBe(2 * n)
-      expect(lookups).toBe(4 * n)
+      expect(copiedIds).toBe(listening ? 2 * n : 0)
+      expect(lookups).toBe(listening ? 4 * n : 0)
       expect(notices).toHaveLength(listening ? 1 : 0)
       if (listening) expect([...notices[0].trafficAddresses]).toEqual(['orca_session_id:session-0'])
       console.log('BENCH tab-notification-producer', JSON.stringify({
-        head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', tabs: n,
+        head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', tabs: n,
         changedMemberships: 1, subscribers: listening ? 1 : 0,
         copiedIds, membershipLookups: lookups, notices: notices.length
       }))

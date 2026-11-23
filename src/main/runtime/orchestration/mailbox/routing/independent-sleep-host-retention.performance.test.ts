@@ -40,7 +40,7 @@ it.each([100, 1000])('host reader retention after %i connect/remove lifecycles',
   deliver({ type: 'sshStateChanged', targetId: 'reconnect', state: { status: 'connected' } })
   expect(publish).toHaveBeenCalledTimes(n + 2)
   expect(connected.size).toBe(1)
-  console.log('BENCH host-retention', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', completedHostLifecycles: n, liveHostsAfterRemoval: 0, retainedAfterRemoval: 0, reconnectRetries: 2 }))
+  console.log('BENCH host-retention', JSON.stringify({ head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', completedHostLifecycles: n, liveHostsAfterRemoval: 0, retainedAfterRemoval: 0, reconnectRetries: 2 }))
 })
 
 it.each([100, 1000])('session input cache after %i removed host partitions', async n => {
@@ -63,7 +63,7 @@ it.each([100, 1000])('session input cache after %i removed host partitions', asy
     }
     await vi.advanceTimersByTimeAsync(5000)
     const index = (runtime as any).sleepingRecordIndex
-    const counts = { head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', removedHostPartitions: n, liveHosts: 1, cachedInputs: index.inputs.size, obligatedHosts: index.hosts.size, sleepRecords: index.records.size }
+    const counts = { head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', removedHostPartitions: n, liveHosts: 1, cachedInputs: index.inputs.size, obligatedHosts: index.hosts.size, sleepRecords: index.records.size }
     console.log('BENCH session-input-retention', JSON.stringify(counts))
     expect(index.records.size).toBe(0)
     expect(index.hosts.size).toBe(0)

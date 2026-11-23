@@ -12,7 +12,7 @@ vi.mock('react', async (original) => ({ ...await original<typeof import('react')
 const census = vi.hoisted(() => ({
   owner: 'non-runtime' as 'non-runtime' | 'ambiguous', state: {} as any, phase: 'normal', now: 1, foreground: [] as string[],
   ownerPtyChecks: 0, statusVisits: 0, tabVisits: 0, bindingCopies: 0, boundaryCopies: 0, plannerStatuses: 0, plannerTabs: 0,
-  foregroundCopies: 0, driverCopies: 0, inputCopies: 0, driverReads: 0, inputReads: 0,
+  foregroundCopies: 0, driverCopies: 0, inputCopies: 0, driverReads: 0, inputReads: 0, attentionIds: 0, plannerPtyVisits: 0,
   slept: 0, rechecks: 0, changeDuringAdmission: false, rejectDuringAdmission: 'none'
 }))
 vi.mock('../../../../../shared/remote-runtime/remote-runtime-pty-id', async (original) => {
@@ -146,7 +146,17 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
       yield row
     }
   }
-  const attention = vi.fn(async () => ({}))
+  const originalPtyIterator = ptyIdsByTabId['tab-0'][Symbol.iterator].bind(ptyIdsByTabId['tab-0'])
+  ptyIdsByTabId['tab-0'][Symbol.iterator] = function* () {
+    for (const id of { [Symbol.iterator]: originalPtyIterator }) {
+      if (census.phase === 'final') census.plannerPtyVisits++
+      yield id
+    }
+  }
+  const attention = vi.fn(async (ids: string[]) => {
+    if (census.phase === 'final') census.attentionIds += ids.length
+    return {}
+  })
   vi.stubGlobal('window', { api: { pty: { getTerminalAttention: attention }, ui: { notifySleepingMailAvailability: () => {} } } })
   for (let i = 0; i < n * 3; i++) setDriverForPty(`pty-${i}`, { kind: 'desktop' })
   for (let i = 1; i <= extraSplits; i++) setDriverForPty(`split-pty-${i}`, { kind: 'desktop' })
@@ -183,7 +193,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   }
   Object.assign(census, { owner, phase: 'normal', now: 1, foreground: [], slept: 0, rechecks: 0,
     ownerPtyChecks: 0, statusVisits: 0, tabVisits: 0, bindingCopies: 0, boundaryCopies: 0, plannerStatuses: 0, plannerTabs: 0, changeDuringAdmission: false,
-    rejectDuringAdmission: 'none', driverReads: 0, inputReads: 0 })
+    rejectDuringAdmission: 'none', driverReads: 0, inputReads: 0, attentionIds: 0, plannerPtyVisits: 0 })
   census.foregroundCopies = 0; census.driverCopies = 0; census.inputCopies = 0
   startAgentHibernationCoordinator({ now: () => census.now })
   await runAgentHibernationTick()
@@ -196,10 +206,13 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.foregroundCopies).toBe(1)
   expect(census.driverCopies).toBe(0)
   expect(census.inputCopies).toBe(0)
-  expect(census.driverReads).toBe(1 + extraSplits)
+  expect(census.driverReads).toBe(1)
+  expect(census.attentionIds).toBe(1 + extraSplits)
+  expect(census.plannerPtyVisits).toBe(1 + extraSplits)
+  console.log('BENCH final-split-attention-liveness', JSON.stringify({head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', n, splitWidth: 1 + extraSplits, targetPanes: 1, finalRechecks: census.rechecks, attentionIds: census.attentionIds, plannerPtyVisits: census.plannerPtyVisits, driverReads: census.driverReads}))
   expect(census.inputReads).toBe(1)
-  console.log('BENCH final-global-input-copies', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3 + extraSplits, targetTabPtys: 1 + extraSplits, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
-  console.log('BENCH final-foreground-copies', JSON.stringify({head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
+  console.log('BENCH final-global-input-copies', JSON.stringify({ head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3 + extraSplits, targetTabPtys: 1 + extraSplits, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
+  console.log('BENCH final-foreground-copies', JSON.stringify({head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
   expect(census.statusVisits).toBe(2)
   expect(census.bindingCopies).toBe(1)
   expect(census.boundaryCopies).toBe(1)
@@ -207,7 +220,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.plannerTabs).toBe(1)
   expect(census.tabVisits).toBe(0)
   expect(census.ownerPtyChecks).toBe(0)
-  console.log('BENCH final-recheck', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
+  console.log('BENCH final-recheck', JSON.stringify({ head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true

@@ -32,7 +32,8 @@ vi.mock('../../../components/terminal-pane/parking/retention/foreground-terminal
 }))
 vi.mock('./agent-hibernation-output-activity', () => ({ getAgentHibernationOutputSignature: () => 'quiet' }))
 vi.mock('../../terminal/input/terminal-input-activity-coalescing', () => ({
-  mergePendingTerminalInputActivity: (stamps: unknown) => stamps
+  mergePendingTerminalInputActivity: (stamps: unknown) => stamps,
+  readLastTerminalInputAt: (stamps: Record<string, number>, key: string) => stamps[key]
 }))
 vi.mock('../../window-activity/window-park-visibility', () => ({
   getWindowParkVisible: () => true, subscribeWindowParkVisibility: () => () => {}
@@ -74,6 +75,7 @@ const populations = [100, 1000].flatMap(n =>
 )
 it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated, owner=$owner', async ({n, concentrated, owner}) => {
   vi.useFakeTimers()
+  vi.setSystemTime(1)
   const leaf = '11111111-1111-4111-8111-111111111111'
   const tabsByWorktree: any = {}, terminalLayoutsByTabId: any = {}, ptyIdsByTabId: any = {}
   const statuses = new Map<string, any>()
@@ -141,7 +143,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.plannerTabs).toBe(1)
   expect(census.tabVisits).toBe(0)
   expect(census.ownerPtyChecks).toBe(0)
-  console.log('BENCH final-recheck', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
+  console.log('BENCH final-recheck', JSON.stringify({ head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true
