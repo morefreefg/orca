@@ -22,6 +22,6 @@ it.each([100, 1000])('host reader retention after %i connect/remove lifecycles',
     expect(publish).toHaveBeenCalledTimes(n)
     expect(statuses?.size).toBe(n)
     expect([...statuses!.values()].every(status => status === 'disconnected')).toBe(true)
-    console.log('BENCH host-retention', JSON.stringify({ head: '6b8d0c43b72c4bb7da70477cd657c2b612d79f88', completedHostLifecycles: n, liveHosts: 0, retainedEntries: statuses!.size, retainedKeyCharacters: [...statuses!.keys()].reduce((sum, key) => sum + key.length, 0) }))
+    console.log('BENCH host-retention', JSON.stringify({ head: '22ca84dded198ded40a3d2093f934d6b9c3f8479', completedHostLifecycles: n, liveHosts: 0, retainedEntries: statuses!.size, retainedKeyCharacters: [...statuses!.keys()].reduce((sum, key) => sum + key.length, 0) }))
   } finally { spy.mockRestore() }
 })

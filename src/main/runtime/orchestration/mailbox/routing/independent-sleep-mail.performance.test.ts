@@ -8,7 +8,7 @@ import { SleptMailboxWake } from './slept-mailbox-wake'
 import type { SleepingAgentSessionRecord } from '../../../../../shared/agent-session/lifecycle/agent-session-resume'
 import type { RuntimeNotifier } from '../../../client/events/runtime-notifier-contract'
 
-const HEAD = '6b8d0c43b72c4bb7da70477cd657c2b612d79f88'
+const HEAD = '22ca84dded198ded40a3d2093f934d6b9c3f8479'
 function sleeper(i: number, manual = true): SleepingAgentSessionRecord {
   const leaf = `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`
   return { paneKey: `tab-${i}:${leaf}`, tabId: `tab-${i}`, worktreeId: `folder:${i}`,
