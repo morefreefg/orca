@@ -22,8 +22,8 @@ it.each([100, 1000])('targeted mounted resume cleanup among %i distinct conversa
   // Bootstrap once, so the counter measures resume cleanup, not the index's initial population.
   sleepingAgentRecordIndex.entries(records as never, 'wt')
   let visits = 0
-  const realEntries = sleepingAgentRecordIndex.entries.bind(sleepingAgentRecordIndex)
-  vi.spyOn(sleepingAgentRecordIndex, 'entries').mockImplementation((...args) => {
+  const realEntries = sleepingAgentRecordIndex.providerSessionEntries.bind(sleepingAgentRecordIndex)
+  vi.spyOn(sleepingAgentRecordIndex, 'providerSessionEntries').mockImplementation((...args) => {
     const entries = realEntries(...args)
     return new Proxy(entries, { get(target, key, receiver) {
       if (key === Symbol.iterator) return function* () { for (const entry of target) { visits++; yield entry } }
@@ -54,14 +54,14 @@ it.each([100, 1000])('targeted mounted resume cleanup among %i distinct conversa
     dispatchHibernatedAgentWake({ worktreeId: 'wt', paneKey: `tab-0:${leaf}`, wokenClaimKeys: new Set() })
     await Promise.all(pending)
     await Promise.resolve()
-    expect(visits).toBe(n)
+    expect(visits).toBe(1)
     const single = visits
     visits = 0
     for (let i = 0; i < n; i++) dispatchHibernatedAgentWake({ worktreeId: 'wt', paneKey: `tab-${i}:${leaf}`, wokenClaimKeys: new Set() })
     await Promise.all(pending)
-    expect(visits).toBe(n * n)
+    expect(visits).toBe(n)
     expect(store.state.clearSleepingAgentSession).not.toHaveBeenCalled()
-    console.log('BENCH resume-cleanup', JSON.stringify({ head: 'f1b8a74b2c7de87e7c4dcde271557beeb2133216',
+    console.log('BENCH resume-cleanup', JSON.stringify({ head: '6b8d0c43b72c4bb7da70477cd657c2b612d79f88',
       sleptConversations: n, singleTargetSiblingRecordVisits: single, burstTargets: n, burstRecordVisits: visits, duplicateRecords: 0, requiredRemovals: 0 }))
   } finally { releases.forEach(release => release()) }
 })
