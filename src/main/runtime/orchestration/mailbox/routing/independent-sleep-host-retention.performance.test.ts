@@ -3,6 +3,25 @@ import { retryOnHostConnect } from './sleeping-mail-crew-watch'
 import { OrcaRuntimeService } from '../../../orca-runtime'
 import { partialRuntimeStore } from '../../../construction/test-context/runtime-store-partial-fixture'
 import { getDefaultWorkspaceSession } from '../../../../../shared/orca-profiles/constants'
+import { SleepingMailRecordIndex } from './sleeping-mail-record-index'
+
+it('a removed host returning and a newly added host both register arriving sleepers', () => {
+  const index = new SleepingMailRecordIndex()
+  index.refresh('local', {}, () => {})
+  index.refresh('returning', {}, () => {})
+  index.finishInitialRead()
+  index.refresh('returning', {}, () => {})
+  index.forgetUnlessLive('returning', ['local'])
+  for (const host of ['returning', 'new']) {
+    const paneKey = `tab-${host}:11111111-1111-4111-8111-111111111111`
+    index.refresh(host, { [paneKey]: {
+      paneKey, worktreeId: 'wt', agent: 'codex', origin: 'worktree-sleep', state: 'done',
+      providerSession: { key: 'session_id', id: host }, prompt: '', capturedAt: 1, updatedAt: 1
+    } }, () => {})
+    expect(index.takeArrival(paneKey)).toBe(true)
+    expect(index.takeArrival(paneKey)).toBe(false)
+  }
+})
 
 it.each([100, 1000])('host reader retention after %i connect/remove lifecycles', n => {
   let deliver: (event: any) => void = () => {}
@@ -21,7 +40,7 @@ it.each([100, 1000])('host reader retention after %i connect/remove lifecycles',
   deliver({ type: 'sshStateChanged', targetId: 'reconnect', state: { status: 'connected' } })
   expect(publish).toHaveBeenCalledTimes(n + 2)
   expect(connected.size).toBe(1)
-  console.log('BENCH host-retention', JSON.stringify({ head: 'd1eb8c9d8b9bbf06803f667085d2c942b8c26a32', completedHostLifecycles: n, liveHostsAfterRemoval: 0, retainedAfterRemoval: 0, reconnectRetries: 2 }))
+  console.log('BENCH host-retention', JSON.stringify({ head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', completedHostLifecycles: n, liveHostsAfterRemoval: 0, retainedAfterRemoval: 0, reconnectRetries: 2 }))
 })
 
 it.each([100, 1000])('session input cache after %i removed host partitions', async n => {
@@ -44,10 +63,10 @@ it.each([100, 1000])('session input cache after %i removed host partitions', asy
     }
     await vi.advanceTimersByTimeAsync(5000)
     const index = (runtime as any).sleepingRecordIndex
-    const counts = { head: 'd1eb8c9d8b9bbf06803f667085d2c942b8c26a32', removedHostPartitions: n, liveHosts: 1, cachedInputs: index.inputs.size, obligatedHosts: index.hosts.size, sleepRecords: index.records.size }
+    const counts = { head: 'e76eca5b42752b584f1724d4f8ffc2783af83af4', removedHostPartitions: n, liveHosts: 1, cachedInputs: index.inputs.size, obligatedHosts: index.hosts.size, sleepRecords: index.records.size }
     console.log('BENCH session-input-retention', JSON.stringify(counts))
     expect(index.records.size).toBe(0)
     expect(index.hosts.size).toBe(0)
-    expect(index.inputs.size).toBe(n + 1)
+    expect(index.inputs.size).toBe(1)
   } finally { vi.useRealTimers() }
 })
