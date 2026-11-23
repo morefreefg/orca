@@ -133,6 +133,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   }
   Object.assign(census, { owner, phase: 'normal', now: 1, foreground: [], slept: 0, rechecks: 0,
     ownerPtyChecks: 0, statusVisits: 0, tabVisits: 0, bindingCopies: 0, boundaryCopies: 0, plannerStatuses: 0, plannerTabs: 0, changeDuringAdmission: false })
+  census.foregroundCopies = 0
   startAgentHibernationCoordinator({ now: () => census.now })
   await runAgentHibernationTick()
   for (let i = 0; i < n * 3; i++) recordHibernationBoundaryResolved(`tab-${i}:${leaf}`, 1)
