@@ -49,7 +49,7 @@ it.each([100, 1000])('targeted mounted resume cleanup among %i distinct conversa
         return result
       }
       releases.push(listenForHibernatedAgentWake('wt', `tab-${i}`, () => [{ dispose() {},
-        wakeHibernatedAgentIfArmed: (claims?: Set<string>, paneKey?: string) => wakeHibernatedPaneIfArmed(session, claims, paneKey) }]))
+        wakeHibernatedAgentIfArmed: (claims?: Set<string>, paneKey?: string) => wakeHibernatedPaneIfArmed(session, claims, paneKey) }], () => ({dispose() {}, wakeHibernatedAgentIfArmed: (claims?:Set<string>, paneKey?:string) => wakeHibernatedPaneIfArmed(session,claims,paneKey)})))
     }
     dispatchHibernatedAgentWake({ worktreeId: 'wt', paneKey: `tab-0:${leaf}`, wokenClaimKeys: new Set() })
     await Promise.all(pending)

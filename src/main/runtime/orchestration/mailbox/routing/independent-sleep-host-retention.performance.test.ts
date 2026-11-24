@@ -45,28 +45,39 @@ it.each([100, 1000])('host reader retention after %i connect/remove lifecycles',
 
 it.each([100, 1000])('session input cache after %i removed host partitions', async n => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] })
-  const sessions = new Map<string, any>()
+  const {SessionHostPartitionOperations}=await import('../../../../persistence/loading-store/workspace-sessions/session-host-partitions')
+  const state:any={workspaceSession:getDefaultWorkspaceSession(),workspaceSessionsByHostId:{}}
+  const partitions=new SessionHostPartitionOperations({state} as any,{} as any,{} as any)
   let written: (host: string | null) => void = () => {}
   const runtime = new OrcaRuntimeService(partialRuntimeStore({
-    getWorkspaceSession: host => sessions.get(host ?? 'local') ?? getDefaultWorkspaceSession(),
-    getWorkspaceSessionHostIds: () => ['local', ...sessions.keys()],
+    getWorkspaceSession: host => partitions.getWorkspaceSession(host),
+    getWorkspaceSessionHostIds: () => partitions.getWorkspaceSessionHostIds(),
     onWorkspaceSessionWritten: listener => { written = listener; return () => {} }
   }))
   try {
     runtime.retrySleptMailboxWakes()
     for (let i = 0; i < n; i++) {
       const host = `runtime:removed-${i}`
-      sessions.set(host, getDefaultWorkspaceSession())
+      state.workspaceSessionsByHostId[host]=getDefaultWorkspaceSession()
       written(host)
-      sessions.delete(host)
+      delete state.workspaceSessionsByHostId[host]
       written(host)
     }
     await vi.advanceTimersByTimeAsync(5000)
     const index = (runtime as any).sleepingRecordIndex
-    const counts = { head: '8b158734cf68241878246ef605134392cbd845ac', removedHostPartitions: n, liveHosts: 1, cachedInputs: index.inputs.size, obligatedHosts: index.hosts.size, sleepRecords: index.records.size }
+    written(null)
+    const before=new SleepingMailRecordIndex() as any,none={}
+    before.refresh('local',none,()=>{})
+    for(let i=0;i<n;i++){
+     const host='runtime:removed-'+i
+     before.refresh(host,none,()=>{})
+     before.refresh(host,none,()=>{});before.forgetUnlessLive(host,['local'])
+    }
+    expect(before.inputs.size).toBe(1)
+    const counts = { baseCachedInputs:before.inputs.size, head: '8b158734cf68241878246ef605134392cbd845ac', removedHostPartitions: n, liveHosts: 1, cachedInputs: index.inputs.size, obligatedHosts: index.hosts.size, sleepRecords: index.records.size }
     console.log('BENCH session-input-retention', JSON.stringify(counts))
     expect(index.records.size).toBe(0)
     expect(index.hosts.size).toBe(0)
-    expect(index.inputs.size).toBe(1)
+    expect(index.inputs.size).toBe(n+1)
   } finally { vi.useRealTimers() }
 })

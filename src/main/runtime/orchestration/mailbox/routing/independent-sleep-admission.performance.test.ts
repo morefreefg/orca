@@ -53,7 +53,7 @@ it.each([100,1000].flatMap(n=>[false,true].flatMap(sharedMailbox=>[false,true].m
   const own=Array.from({length:100},(_,i)=>createBoundRun(db,'target-'+i))
   let foreign:any
   for(let i=0;i<n;i++){
-   if(!sharedMailbox||!foreign)foreign=db.createRun({objective:'stranded-'+i,coordinatorHandle:null,coordinatorPaneKey:'unrelated:22222222-2222-4222-8222-222222222222'})
+   if(!sharedMailbox||!foreign)foreign=db.createRun({objective:'stranded-'+i,coordinatorHandle:null,coordinatorPaneKey:'unrelated:99999999-9999-4999-8999-999999999999'})
    const message=db.insertMessage({runId:foreign.id,from:'worker',to:'run:'+foreign.id,subject:'stranded'})
    if(reserved)db.db.prepare("UPDATE messages SET delivered_at = datetime('now'), pointer_enter_pending = 1 WHERE id = ?").run(message.id)
   }
