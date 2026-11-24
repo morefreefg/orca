@@ -84,8 +84,8 @@ import { setDriverForPty, hydrateDrivers } from '../../pane-manager/mobile-drive
 
 afterEach(() => { flushTerminalInputActivity(); hydrateDrivers([]); stopAgentHibernationCoordinator(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
-const populations = [100, 1000].flatMap(n => [0, n - 1].map(extraSplits => ({ n, extraSplits, concentrated: false, owner: 'non-runtime' as const })))
-it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated, owner=$owner, extraSplits=$extraSplits', async ({n, concentrated, owner, extraSplits}) => {
+const populations = [100, 1000].flatMap(n => [false, true].flatMap(churnDuringAdmission => [0, n - 1].map(extraSplits => ({ n, extraSplits, concentrated: churnDuringAdmission, churnDuringAdmission, owner: 'non-runtime' as const }))))
+it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated, owner=$owner, extraSplits=$extraSplits, admissionChurn=$churnDuringAdmission', async ({n, concentrated, owner, extraSplits, churnDuringAdmission}) => {
   vi.useFakeTimers()
   vi.setSystemTime(1)
   const foreground = await import('../../../components/terminal-pane/parking/retention/foreground-terminal-tabs')
@@ -179,6 +179,17 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
     shutdownCompletedAgentPaneForHibernation: async (_worktree: string, options: any) => {
       recordTerminalInputActivity({ paneKey: 'input-0', timestamp: 1, forceWrite: true, commit: { insert() {}, refreshExisting() {} } })
       recordTerminalInputActivity({ paneKey: 'input-0', timestamp: 2, commit: { insert() {}, refreshExisting() {} } })
+      if (churnDuringAdmission) {
+        // An unrelated title/binding publication while the real admission IPC is pending replaces these identities.
+        const tabs = census.state.tabsByWorktree['wt-0'].map((tab: any, i: number) => i === n - 1 ? {...tab, title:'Updated sibling'} : tab)
+        const map = tabs.map.bind(tabs)
+        tabs.map = (callback: any) => map((...args: any[]) => { if(census.phase === 'final') census.tabVisits++; return callback(...args) })
+        census.state.tabsByWorktree = {...census.state.tabsByWorktree, 'wt-0':tabs}
+        const bindings = Array.from(census.state.ptyIdsByTabId['tab-0'])
+        const iterator = bindings[Symbol.iterator].bind(bindings)
+        bindings[Symbol.iterator] = function* () { for (const id of {[Symbol.iterator]:iterator}) { if(census.phase === 'final') census.plannerPtyVisits++; yield id } }
+        census.state.ptyIdsByTabId = {...census.state.ptyIdsByTabId, 'tab-0':bindings}
+      }
       census.phase = 'final'; census.rechecks++
       if (census.changeDuringAdmission) census.foreground = ['tab-0']
       if (census.rejectDuringAdmission === 'mobile') setDriverForPty('pty-0', { kind: 'mobile', clientId: 'phone' })
@@ -207,20 +218,20 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.driverCopies).toBe(0)
   expect(census.inputCopies).toBe(0)
   expect(census.driverReads).toBe(1)
-  expect(census.attentionIds).toBe(1 + extraSplits)
-  expect(census.plannerPtyVisits).toBe(1 + extraSplits)
-  console.log('BENCH final-split-attention-liveness', JSON.stringify({head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', n, splitWidth: 1 + extraSplits, targetPanes: 1, finalRechecks: census.rechecks, attentionIds: census.attentionIds, plannerPtyVisits: census.plannerPtyVisits, driverReads: census.driverReads}))
+  expect(census.attentionIds).toBe(1)
+  expect(census.plannerPtyVisits).toBe(churnDuringAdmission ? 1 + extraSplits : 0)
+  console.log('BENCH final-split-attention-liveness', JSON.stringify({head: '75da9c1ef46bd90e4a784ed050f1df52f425301e', n, churnDuringAdmission, tabIndexVisits:census.tabVisits, splitWidth: 1 + extraSplits, targetPanes: 1, finalRechecks: census.rechecks, attentionIds: census.attentionIds, plannerPtyVisits: census.plannerPtyVisits, driverReads: census.driverReads}))
   expect(census.inputReads).toBe(1)
-  console.log('BENCH final-global-input-copies', JSON.stringify({ head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3 + extraSplits, targetTabPtys: 1 + extraSplits, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
-  console.log('BENCH final-foreground-copies', JSON.stringify({head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
+  console.log('BENCH final-global-input-copies', JSON.stringify({ head: '75da9c1ef46bd90e4a784ed050f1df52f425301e', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3 + extraSplits, targetTabPtys: 1 + extraSplits, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
+  console.log('BENCH final-foreground-copies', JSON.stringify({head: '75da9c1ef46bd90e4a784ed050f1df52f425301e', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
   expect(census.statusVisits).toBe(2)
   expect(census.bindingCopies).toBe(1)
   expect(census.boundaryCopies).toBe(1)
   expect(census.plannerStatuses).toBe(1)
   expect(census.plannerTabs).toBe(1)
-  expect(census.tabVisits).toBe(0)
+  expect(census.tabVisits).toBe(churnDuringAdmission ? n : 0)
   expect(census.ownerPtyChecks).toBe(0)
-  console.log('BENCH final-recheck', JSON.stringify({ head: '01b073c12d1d9328cbb71b584e9b7396dad7122a', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
+  console.log('BENCH final-recheck', JSON.stringify({ head: '75da9c1ef46bd90e4a784ed050f1df52f425301e', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true

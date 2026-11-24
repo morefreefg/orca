@@ -8,7 +8,7 @@ import { SleptMailboxWake } from './slept-mailbox-wake'
 import type { SleepingAgentSessionRecord } from '../../../../../shared/agent-session/lifecycle/agent-session-resume'
 import type { RuntimeNotifier } from '../../../client/events/runtime-notifier-contract'
 
-const HEAD = '01b073c12d1d9328cbb71b584e9b7396dad7122a'
+const HEAD = '75da9c1ef46bd90e4a784ed050f1df52f425301e'
 function sleeper(i: number, manual = true): SleepingAgentSessionRecord {
   const leaf = `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`
   return { paneKey: `tab-${i}:${leaf}`, tabId: `tab-${i}`, worktreeId: `folder:${i}`,
@@ -356,4 +356,36 @@ it.each([100, 1000])('retained mail settlement during %i unrelated explicit wake
     expect(internals.sleptAgentWakes.size).toBe(0)
     expect(internals.sleptWakesByPane.size).toBe(0)
   } finally { release?.(); m.empty(); await flush(); m.runtime.setNotifier(null); m.db.close() }
+}, 120000)
+
+
+it.each([750, 7500].flatMap(workspaces => [true, false].map(manual => ({workspaces, manual}))))(
+  'held send receipt catalog visits among $workspaces workspaces, manual=$manual', async ({workspaces, manual}) => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'Date'] })
+  const m = mount(1, true, manual)
+  try {
+    await vi.advanceTimersByTimeAsync(5000)
+    const r = m.runtime as any
+    // A failed automatic wake uses the same receipt branch as a manual sleeper.
+    if (!manual) r.sleptMailboxWake.failed.set(Object.keys(m.records)[0], 1)
+    let visits = 0
+    const worktrees = Array.from({length:workspaces}, (_, i) => ({
+      get id() { visits++; return i === workspaces - 1 ? 'folder:0' : `folder:other-${i}` },
+      displayName: i === workspaces - 1 ? 'Target workspace' : `Other ${i}`,
+      hostId: 'local'
+    }))
+    await r.resolvedWorktrees.getSnapshot(async () => ({worktrees, platformByRepoId:new Map()}), 60000, 1)
+    visits = 0
+    const { sendDeliveryHoldWarning } = await import('../../../rpc/methods/orchestration/messaging/send-delivery-hold')
+    const counts: number[] = []
+    for (let i=0;i<10;i++) {
+      visits=0
+      const warning = await sendDeliveryHoldWarning(m.runtime, m.db, m.mailboxes[0])
+      expect(warning?.code).toBe('recipient_delivery_held')
+      expect(warning?.message).toContain(manual ? 'Open its tab' : 'Target workspace')
+      counts.push(visits)
+    }
+    expect(counts).toEqual(Array(10).fill(workspaces))
+    console.log('BENCH held-send-catalog', JSON.stringify({head:HEAD,workspaces,manual,receipts:10,visitsPerReceipt:counts[0],totalVisits:counts.reduce((a,b)=>a+b,0)}))
+  } finally { m.empty(); await flush(); m.runtime.setNotifier(null); m.db.close() }
 }, 120000)

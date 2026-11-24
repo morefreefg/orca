@@ -50,5 +50,5 @@ it.each([100,1000])('real targeted wake producer and mounted listeners at %i own
   dispatchHibernatedAgentWake({worktreeId:'folder:0',paneKey:'tab-0:11111111-1111-4111-8111-111111111111'})
   expect(ownerCallbacks).toBe(after)
   expect(callbacks.size).toBe(0)
-  console.log('BENCH targeted-wake-listeners',JSON.stringify({head:'01b073c12d1d9328cbb71b584e9b7396dad7122a',mountedOwners:n,callbacksPerTargetedWake:1,burstWakes:n,burstOwnerCallbacks:measured,requiredBindingCalls:bindingChecks,listenersAfterDispose:callbacks.size}))
+  console.log('BENCH targeted-wake-listeners',JSON.stringify({head:'75da9c1ef46bd90e4a784ed050f1df52f425301e',mountedOwners:n,callbacksPerTargetedWake:1,burstWakes:n,burstOwnerCallbacks:measured,requiredBindingCalls:bindingChecks,listenersAfterDispose:callbacks.size}))
 })
