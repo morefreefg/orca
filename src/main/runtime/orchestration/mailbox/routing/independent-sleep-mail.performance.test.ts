@@ -8,7 +8,7 @@ import { SleptMailboxWake } from './slept-mailbox-wake'
 import type { SleepingAgentSessionRecord } from '../../../../../shared/agent-session/lifecycle/agent-session-resume'
 import type { RuntimeNotifier } from '../../../client/events/runtime-notifier-contract'
 
-const HEAD = '75da9c1ef46bd90e4a784ed050f1df52f425301e'
+const HEAD = 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c'
 function sleeper(i: number, manual = true): SleepingAgentSessionRecord {
   const leaf = `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`
   return { paneKey: `tab-${i}:${leaf}`, tabId: `tab-${i}`, worktreeId: `folder:${i}`,
@@ -377,6 +377,7 @@ it.each([750, 7500].flatMap(workspaces => [true, false].map(manual => ({workspac
     await r.resolvedWorktrees.getSnapshot(async () => ({worktrees, platformByRepoId:new Map()}), 60000, 1)
     visits = 0
     const { sendDeliveryHoldWarning } = await import('../../../rpc/methods/orchestration/messaging/send-delivery-hold')
+    const lookup = vi.spyOn(r.resolvedWorktrees, 'lookup')
     const counts: number[] = []
     for (let i=0;i<10;i++) {
       visits=0
@@ -385,7 +386,86 @@ it.each([750, 7500].flatMap(workspaces => [true, false].map(manual => ({workspac
       expect(warning?.message).toContain(manual ? 'Open its tab' : 'Target workspace')
       counts.push(visits)
     }
-    expect(counts).toEqual(Array(10).fill(workspaces))
-    console.log('BENCH held-send-catalog', JSON.stringify({head:HEAD,workspaces,manual,receipts:10,visitsPerReceipt:counts[0],totalVisits:counts.reduce((a,b)=>a+b,0)}))
+    expect(counts).toEqual(Array(10).fill(0))
+    console.log('BENCH held-send-catalog', JSON.stringify({head:HEAD,workspaces,manual,receipts:10,visitsPerReceipt:counts[0],keyedLookupsPerReceipt:lookup.mock.calls.length/10,totalVisits:counts.reduce((a,b)=>a+b,0)}))
   } finally { m.empty(); await flush(); m.runtime.setNotifier(null); m.db.close() }
 }, 120000)
+
+
+it.each([100,1000])('pane availability snapshot and unnamed crew bursts at %i held mailboxes',async n=>{
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date']})
+ const m=mount(n,true)
+ try{
+  await vi.advanceTimersByTimeAsync(5000)
+  const r=m.runtime as any
+  let snapshotVisits=0
+  for(const map of [r.sleptMailboxWake.owed,r.sleptMailboxWake.succeeded]){
+   const keys=map.keys.bind(map)
+   vi.spyOn(map,'keys').mockImplementation(function*(){for(const key of {[Symbol.iterator]:keys}){snapshotVisits++;yield key}})
+  }
+  const refresh=vi.spyOn(r.sleptMailboxWake,'refresh')
+  m.runtime.retrySleptMailboxWakes(Object.keys(m.records)[0]);await flush()
+  const paneCounts={snapshotVisits,refreshes:refresh.mock.calls.length}
+  expect(snapshotVisits).toBe(n)
+  refresh.mockClear();snapshotVisits=0
+  const bursts=[]
+  for(let second=0;second<3;second++){
+   for(let event=0;event<n;event++)m.db.crewChanges.notify(new Set(['topology']))
+   await vi.advanceTimersByTimeAsync(1000)
+   bursts.push(refresh.mock.calls.length);refresh.mockClear()
+  }
+  expect(bursts).toEqual([n,n,n])
+  await vi.advanceTimersByTimeAsync(60000)
+  expect(refresh).toHaveBeenCalledTimes(0)
+  console.log('BENCH availability-and-unnamed',JSON.stringify({head:HEAD,held:n,paneCounts,unnamedEventsPerBurst:n,mailboxRefreshesPerBurst:bursts,idleRefreshes60s:0}))
+ }finally{m.empty();await flush();m.runtime.setNotifier(null);m.db.close()}
+},120000)
+
+it.each([100,1000])('scoped terminal list reads one of %i workspace sleep records',async n=>{
+ vi.useFakeTimers({toFake:['setTimeout','Date']})
+ const m=mount(n,false,false)
+ try{
+  await m.initialGraph;await vi.advanceTimersByTimeAsync(5000)
+  const r=m.runtime as any
+  vi.spyOn(r,'getResolvedWorktreeMap').mockResolvedValue(new Map())
+  let globalVisits=0
+  const values=r.sleepingRecords.values.bind(r.sleepingRecords)
+  vi.spyOn(r.sleepingRecords,'values').mockImplementation(function*(){for(const row of {[Symbol.iterator]:values}){globalVisits++;yield row}})
+  const gets=vi.spyOn(r.sleepingRecords,'get')
+  const listed=await m.runtime.listTerminals('id:folder:0',n+10,{includeVisualLayouts:false})
+  expect(globalVisits).toBe(0)
+  expect(listed.terminals).toHaveLength(1)
+  const scopedGets=gets.mock.calls.length
+  gets.mockClear()
+  await m.runtime.listTerminals(undefined,n+10,{includeVisualLayouts:false,handles:['term_0']})
+  expect(globalVisits).toBe(n)
+  console.log('BENCH scoped-list',JSON.stringify({head:HEAD,records:n,scopedGlobalVisits:0,scopedGets,outputs:listed.terminals.length,oneHandleGlobalVisits:globalVisits}))
+ }finally{m.empty();await flush();m.runtime.setNotifier(null);m.db.close()}
+},120000)
+
+it.each([100,1000])('archive pruning extra leaf reads at %i unrelated panes',async n=>{
+ vi.useFakeTimers({toFake:['setTimeout','Date']})
+ const m=mount(0,false)
+ try{
+  await m.initialGraph
+  const leaves=Array.from({length:n},(_,i)=>({tabId:'live-'+i,worktreeId:'folder:live',leafId:`${String(i).padStart(8,'0')}-1111-4111-8111-111111111111`,paneRuntimeId:1,ptyId:null}))
+  await m.runtime.syncWindowGraph(1,{tabs:leaves.map(l=>({tabId:l.tabId,worktreeId:l.worktreeId,title:'Live',activeLeafId:l.leafId,layout:null})),leaves})
+  await vi.advanceTimersByTimeAsync(5000)
+  const r=m.runtime as any
+  for(let i=0;i<128;i++)r.recordPtyWorktree('archive-'+i,'folder:other',{connected:false})
+  let visits=0,calls=0
+  const scan=r.sleptPanePtyIds.bind(r)
+  vi.spyOn(r,'sleptPanePtyIds').mockImplementation(()=>{
+   calls++
+   const iter=r.leaves[Symbol.iterator].bind(r.leaves)
+   const probe=vi.spyOn(r.leaves,Symbol.iterator).mockImplementation(function*(){for(const row of {[Symbol.iterator]:iter}){visits++;yield row}})
+   try{return scan()}finally{probe.mockRestore()}
+  })
+  for(let i=0;i<10;i++){
+   const id='new-exit-'+i;r.recordPtyWorktree(id,'folder:other',{connected:true})
+   await m.runtime.onPtyExit(id,0,undefined,{providerExitObserved:true})
+  }
+  expect({calls,visits}).toEqual({calls:10,visits:10*n})
+  console.log('BENCH archive-pruning',JSON.stringify({head:HEAD,leaves:n,exits:10,newSleptPaneProjectionCalls:calls,extraLeafVisitsPerExit:visits/10}))
+ }finally{m.runtime.setNotifier(null);m.db.close()}
+},120000)

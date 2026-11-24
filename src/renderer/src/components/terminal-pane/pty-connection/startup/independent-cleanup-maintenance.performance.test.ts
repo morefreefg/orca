@@ -37,5 +37,5 @@ it.each([100, 1000])('actual store resume replacement and cleanup among %i conve
   }
   expect(snapshots).not.toHaveBeenCalled()
   expect(Object.keys(useAppStore.getState().sleepingAgentSessionsByPaneKey)).toHaveLength(n)
-  console.log('BENCH cleanup-maintenance', JSON.stringify({ head: '75da9c1ef46bd90e4a784ed050f1df52f425301e', conversations: n, targets: n, maxConversations, maxFields, totalFields, workspaceSnapshots: snapshots.mock.calls.length }))
+  console.log('BENCH cleanup-maintenance', JSON.stringify({ head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', conversations: n, targets: n, maxConversations, maxFields, totalFields, workspaceSnapshots: snapshots.mock.calls.length }))
 })

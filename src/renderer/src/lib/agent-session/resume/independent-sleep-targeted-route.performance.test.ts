@@ -50,5 +50,21 @@ it.each([100,1000])('real targeted wake producer and mounted listeners at %i own
   dispatchHibernatedAgentWake({worktreeId:'folder:0',paneKey:'tab-0:11111111-1111-4111-8111-111111111111'})
   expect(ownerCallbacks).toBe(after)
   expect(callbacks.size).toBe(0)
-  console.log('BENCH targeted-wake-listeners',JSON.stringify({head:'75da9c1ef46bd90e4a784ed050f1df52f425301e',mountedOwners:n,callbacksPerTargetedWake:1,burstWakes:n,burstOwnerCallbacks:measured,requiredBindingCalls:bindingChecks,listenersAfterDispose:callbacks.size}))
+  console.log('BENCH targeted-wake-listeners',JSON.stringify({head:'d0fb8d41639d2d853d42922f7de92e2b7a26df1c',mountedOwners:n,callbacksPerTargetedWake:1,burstWakes:n,burstOwnerCallbacks:measured,requiredBindingCalls:bindingChecks,listenersAfterDispose:callbacks.size}))
+})
+
+
+it.each([100,1000])('one target wake visits %i split bindings',async n=>{
+ let visits=0,matched=0
+ const paneKey='wide:11111111-1111-4111-8111-111111111111'
+ const bindings=Array.from({length:n},(_,i)=>({dispose:()=>{},wakeHibernatedAgentIfArmed:(_claims?:Set<string>,pane?:string)=>{
+  visits++;if(i===n-1&&pane===paneKey){matched++;return 'target-claim'}return null
+ }}))
+ const release=listenForHibernatedAgentWake('folder:wide','wide',()=>bindings)
+ try{
+  const {dispatchHibernatedAgentWake}=await import('./hibernated-agent-wake-owners')
+  dispatchHibernatedAgentWake({worktreeId:'folder:wide',paneKey,wokenClaimKeys:new Set()})
+  expect({visits,matched}).toEqual({visits:n,matched:1})
+  console.log('BENCH targeted-split-bindings',JSON.stringify({head:'d0fb8d41639d2d853d42922f7de92e2b7a26df1c',bindings:n,visits,matched}))
+ }finally{release()}
 })

@@ -145,7 +145,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.slept).toBe(1)
   expect(census.rechecks).toBe(1)
   expect(census.foregroundCopies).toBe(1)
-  console.log('BENCH final-foreground-copies', JSON.stringify({head: '75da9c1ef46bd90e4a784ed050f1df52f425301e', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
+  console.log('BENCH final-foreground-copies', JSON.stringify({head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
   expect(census.statusVisits).toBe(2)
   expect(census.bindingCopies).toBe(1)
   expect(census.boundaryCopies).toBe(1)
@@ -153,7 +153,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.plannerTabs).toBe(1)
   expect(census.tabVisits).toBe(0)
   expect(census.ownerPtyChecks).toBe(0)
-  console.log('BENCH final-recheck', JSON.stringify({ head: '75da9c1ef46bd90e4a784ed050f1df52f425301e', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
+  console.log('BENCH final-recheck', JSON.stringify({ head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true
