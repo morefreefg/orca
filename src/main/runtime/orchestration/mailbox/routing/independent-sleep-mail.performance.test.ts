@@ -8,7 +8,7 @@ import { SleptMailboxWake } from './slept-mailbox-wake'
 import type { SleepingAgentSessionRecord } from '../../../../../shared/agent-session/lifecycle/agent-session-resume'
 import type { RuntimeNotifier } from '../../../client/events/runtime-notifier-contract'
 
-const HEAD = 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c'
+const HEAD = '8b158734cf68241878246ef605134392cbd845ac'
 function sleeper(i: number, manual = true): SleepingAgentSessionRecord {
   const leaf = `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111`
   return { paneKey: `tab-${i}:${leaf}`, tabId: `tab-${i}`, worktreeId: `folder:${i}`,
@@ -304,7 +304,7 @@ it.each([100, 1000])('closing waited leaves at %i panes', async (s) => {
     await flush()
     console.log('BENCH waited-leaf-close', HEAD, s, JSON.stringify({ droppedWaitedLeaves: s / 2, remainingLeaves: s / 2, checks: checks.mock.calls.length, leafVisits }))
     expect(checks.mock.calls.length).toBe(s / 2)
-    expect(leafVisits).toBe(s / 2)
+    expect(leafVisits).toBe(0)
     // Saved records disappearing completes the removed panes' exit waits; survivors still wait.
     m.empty(); await flush()
     expect(internals.sleptWaits.size).toBe(s / 2)
@@ -406,7 +406,7 @@ it.each([100,1000])('pane availability snapshot and unnamed crew bursts at %i he
   const refresh=vi.spyOn(r.sleptMailboxWake,'refresh')
   m.runtime.retrySleptMailboxWakes(Object.keys(m.records)[0]);await flush()
   const paneCounts={snapshotVisits,refreshes:refresh.mock.calls.length}
-  expect(snapshotVisits).toBe(n)
+  expect(snapshotVisits).toBe(0)
   refresh.mockClear();snapshotVisits=0
   const bursts=[]
   for(let second=0;second<3;second++){
@@ -437,9 +437,11 @@ it.each([100,1000])('scoped terminal list reads one of %i workspace sleep record
   expect(listed.terminals).toHaveLength(1)
   const scopedGets=gets.mock.calls.length
   gets.mockClear()
-  await m.runtime.listTerminals(undefined,n+10,{includeVisualLayouts:false,handles:['term_0']})
-  expect(globalVisits).toBe(n)
-  console.log('BENCH scoped-list',JSON.stringify({head:HEAD,records:n,scopedGlobalVisits:0,scopedGets,outputs:listed.terminals.length,oneHandleGlobalVisits:globalVisits}))
+  const oneHandle=await m.runtime.listTerminals(undefined,n+10,{includeVisualLayouts:false,handles:['term_0']})
+  expect(oneHandle.terminals).toHaveLength(1)
+  const oneHandleGets=gets.mock.calls.length
+  expect(globalVisits).toBe(0)
+  console.log('BENCH scoped-list',JSON.stringify({head:HEAD,records:n,scopedGlobalVisits:0,scopedGets,outputs:listed.terminals.length,oneHandleGlobalVisits:globalVisits,oneHandleGets,oneHandleOutputs:oneHandle.terminals.length}))
  }finally{m.empty();await flush();m.runtime.setNotifier(null);m.db.close()}
 },120000)
 
@@ -454,19 +456,19 @@ it.each([100,1000])('archive pruning extra leaf reads at %i unrelated panes',asy
   const r=m.runtime as any
   for(let i=0;i<128;i++)r.recordPtyWorktree('archive-'+i,'folder:other',{connected:false})
   let visits=0,calls=0
-  const scan=r.sleptPanePtyIds.bind(r)
-  vi.spyOn(r,'sleptPanePtyIds').mockImplementation(()=>{
+  const scan=r.isSleptPanePty.bind(r)
+  vi.spyOn(r,'isSleptPanePty').mockImplementation((id:string)=>{
    calls++
    const iter=r.leaves[Symbol.iterator].bind(r.leaves)
    const probe=vi.spyOn(r.leaves,Symbol.iterator).mockImplementation(function*(){for(const row of {[Symbol.iterator]:iter}){visits++;yield row}})
-   try{return scan()}finally{probe.mockRestore()}
+   try{return scan(id)}finally{probe.mockRestore()}
   })
   for(let i=0;i<10;i++){
    const id='new-exit-'+i;r.recordPtyWorktree(id,'folder:other',{connected:true})
    await m.runtime.onPtyExit(id,0,undefined,{providerExitObserved:true})
   }
-  expect({calls,visits}).toEqual({calls:10,visits:10*n})
-  console.log('BENCH archive-pruning',JSON.stringify({head:HEAD,leaves:n,exits:10,newSleptPaneProjectionCalls:calls,extraLeafVisitsPerExit:visits/10}))
+  expect({calls,visits}).toEqual({calls:1290,visits:0})
+  console.log('BENCH archive-pruning',JSON.stringify({head:HEAD,leaves:n,exits:10,archiveKeyedChecksPerExit:calls/10,extraLeafVisitsPerExit:visits/10}))
  }finally{m.runtime.setNotifier(null);m.db.close()}
 },120000)
 
@@ -484,21 +486,21 @@ it.each([100,1000])('retained wake owner rechecks probe %i historical Runs',asyn
   let probes=0,queries=0,rows=0
   m.db.db.function('perf_owner_probe',(id:unknown)=>{probes++;return id})
   vi.spyOn(m.db.db,'prepare').mockImplementation((sql:string)=>{
-   if(!sql.includes('FROM runs INDEXED BY idx_runs_coordinator_pane_leaf'))return prepare(sql)
+   if(!sql.includes('CROSS JOIN runs'))return prepare(sql)
    queries++
-   const stmt=prepare(sql.replaceAll("'run:' || runs.id","'run:' || perf_owner_probe(runs.id)"))
+   const stmt=prepare(sql.replaceAll('substr(mail.to_handle, 5)','perf_owner_probe(substr(mail.to_handle, 5))'))
    return new Proxy(stmt,{get(target,key){if(key==='all')return (...args:any[])=>{const found=target.all(...args);rows+=found.length;return found};const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value}})
   })
   r.mailWakeAttempts.claim(record)
   r.publishSleepingMail({panes:[pane]});await flush()
   const empty={queries,rows,probes}
-  expect(empty).toEqual({queries:1,rows:0,probes:n})
+  expect(empty).toEqual({queries:1,rows:0,probes:0})
   m.db.insertMessage({runId:runs[0].id,from:'worker',to:'run:'+runs[0].id,subject:'historical'})
   await flush()
   queries=rows=probes=0
   r.mailWakeAttempts.claim(record)
   r.publishSleepingMail({panes:[pane]});await flush()
-  expect({queries,rows,probes}).toEqual({queries:1,rows:1,probes:n})
+  expect({queries,rows,probes}).toEqual({queries:1,rows:1,probes:1})
   console.log('BENCH retained-owner-history',JSON.stringify({head:HEAD,runs:n,empty,historical:{queries,rows,probes}}))
  }finally{m.empty();await flush();m.runtime.setNotifier(null);m.db.close()}
 },120000)
@@ -527,7 +529,7 @@ it.each([100,1000])('unmounted read after unrelated graph title replacement at %
    expect((await m.runtime.readTerminal('term_0',{})).status).toBe('running')
    counts.push({cold,warm:visits})
   }
-  expect(counts).toEqual(Array.from({length:10},()=>({cold:n,warm:0})))
+  expect(counts).toEqual(Array.from({length:10},()=>({cold:0,warm:0})))
   console.log('BENCH unmounted-graph-invalidations',JSON.stringify({head:HEAD,leaves:n,titlePublications:10,perRead:counts[0]}))
  }finally{m.empty();await flush();m.runtime.setNotifier(null);m.db.close()}
 },120000)
@@ -544,7 +546,7 @@ it.each([100,1000])('empty sleep watcher enumerates %i saved hosts on each sessi
   const r=m.runtime as any
   vi.spyOn(r.store,'getWorkspaceSessionHostIds').mockImplementation(()=>partitions.getWorkspaceSessionHostIds())
   for(let i=0;i<10;i++)m.touchSession()
-  expect(visited).toBe(10*n)
+  expect(visited).toBe(0)
   console.log('BENCH empty-session-host-enumeration',JSON.stringify({head:HEAD,savedHosts:n,sessionWrites:10,sleepRecords:0,hostKeysVisitedPerWrite:visited/10}))
  }finally{m.runtime.setNotifier(null);m.db.close()}
 },120000)

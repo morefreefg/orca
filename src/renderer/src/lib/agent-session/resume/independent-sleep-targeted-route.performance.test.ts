@@ -10,6 +10,7 @@ vi.mock('../../workspace/activation/worktree-agent-activation-gate',()=>({gateWo
 vi.mock('./sleeping-agent-pane-ownership',()=>({activationTreatsNoteAsFinished:()=>true,isStrandedWorkspaceSleepRecord:()=>false,recordPaneIsOwnedByPreservedPane:()=>true}))
 vi.mock('@/store/terminals/sleep/sleeping-agent-record-index',()=>({sleepingAgentRecordIndex:{entries:()=>[]}}))
 import { createBackgroundSleepingAgentWakeDispatcher } from './wake-sleeping-agents-in-background'
+import { PaneIdentityRegistry } from '../../pane-manager/pane-identity-registry'
 import { listenForHibernatedAgentWake } from '../../../components/terminal-pane/mounting/hibernated-agent-wake-listener'
 afterEach(()=>{vi.unstubAllGlobals();vi.restoreAllMocks()})
 it.each([100,1000])('real targeted wake producer and mounted listeners at %i owners',async(n)=>{
@@ -30,7 +31,7 @@ it.each([100,1000])('real targeted wake producer and mounted listeners at %i own
     dispose:()=>{},wakeHibernatedAgentIfArmed:(_claims?:Set<string>,paneKey?:string)=>{
       bindingChecks++;expect(paneKey).toBe('tab-'+i+':11111111-1111-4111-8111-111111111111');return 'claim:'+i
     }
-  }]}))
+  }]}, () => { ownerCallbacks++; return {dispose:()=>{},wakeHibernatedAgentIfArmed:(_claims?:Set<string>,paneKey?:string)=>{bindingChecks++;expect(paneKey).toBe('tab-'+i+':11111111-1111-4111-8111-111111111111');return 'claim:'+i}} }))
   const dispatcher=createBackgroundSleepingAgentWakeDispatcher()
   expect(callbacks.size).toBe(0)
   await dispatcher.request('folder:0','tab-0:11111111-1111-4111-8111-111111111111',true)
@@ -50,7 +51,7 @@ it.each([100,1000])('real targeted wake producer and mounted listeners at %i own
   dispatchHibernatedAgentWake({worktreeId:'folder:0',paneKey:'tab-0:11111111-1111-4111-8111-111111111111'})
   expect(ownerCallbacks).toBe(after)
   expect(callbacks.size).toBe(0)
-  console.log('BENCH targeted-wake-listeners',JSON.stringify({head:'d0fb8d41639d2d853d42922f7de92e2b7a26df1c',mountedOwners:n,callbacksPerTargetedWake:1,burstWakes:n,burstOwnerCallbacks:measured,requiredBindingCalls:bindingChecks,listenersAfterDispose:callbacks.size}))
+  console.log('BENCH targeted-wake-listeners',JSON.stringify({head:'8b158734cf68241878246ef605134392cbd845ac',mountedOwners:n,callbacksPerTargetedWake:1,burstWakes:n,burstOwnerCallbacks:measured,requiredBindingCalls:bindingChecks,listenersAfterDispose:callbacks.size}))
 })
 
 
@@ -60,11 +61,17 @@ it.each([100,1000])('one target wake visits %i split bindings',async n=>{
  const bindings=Array.from({length:n},(_,i)=>({dispose:()=>{},wakeHibernatedAgentIfArmed:(_claims?:Set<string>,pane?:string)=>{
   visits++;if(i===n-1&&pane===paneKey){matched++;return 'target-claim'}return null
  }}))
- const release=listenForHibernatedAgentWake('folder:wide','wide',()=>bindings)
+ const identities=new PaneIdentityRegistry()
+ const byId=new Map(bindings.map((binding,index)=>[index,binding]))
+ for(let i=0;i<n;i++)identities.register(i,(i===n-1?paneKey.split(':')[1]:`${String(i).padStart(8,'0')}-2222-4222-8222-222222222222`) as any)
+ const release=listenForHibernatedAgentWake('folder:wide','wide',()=>bindings,(leaf)=>{
+  const id=identities.getNumericIdForLeaf(leaf)
+  return id===null?undefined:byId.get(id)
+ })
  try{
   const {dispatchHibernatedAgentWake}=await import('./hibernated-agent-wake-owners')
   dispatchHibernatedAgentWake({worktreeId:'folder:wide',paneKey,wokenClaimKeys:new Set()})
-  expect({visits,matched}).toEqual({visits:n,matched:1})
-  console.log('BENCH targeted-split-bindings',JSON.stringify({head:'d0fb8d41639d2d853d42922f7de92e2b7a26df1c',bindings:n,visits,matched}))
+  expect({visits,matched}).toEqual({visits:1,matched:1})
+  console.log('BENCH targeted-split-bindings',JSON.stringify({head:'8b158734cf68241878246ef605134392cbd845ac',bindings:n,visits,matched}))
  }finally{release()}
 })

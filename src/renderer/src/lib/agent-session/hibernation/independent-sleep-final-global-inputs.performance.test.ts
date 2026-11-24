@@ -222,18 +222,18 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.driverReads).toBe(1)
   expect(census.attentionIds).toBe(1)
   expect(census.plannerPtyVisits).toBe(0)
-  console.log('BENCH final-split-attention-liveness', JSON.stringify({head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', n, churnDuringAdmission, tabIndexVisits:census.tabVisits, splitWidth: 1 + extraSplits, targetPanes: 1, finalRechecks: census.rechecks, attentionIds: census.attentionIds, plannerPtyVisits: census.plannerPtyVisits, driverReads: census.driverReads}))
+  console.log('BENCH final-split-attention-liveness', JSON.stringify({head: '8b158734cf68241878246ef605134392cbd845ac', n, churnDuringAdmission, tabIndexVisits:census.tabVisits, splitWidth: 1 + extraSplits, targetPanes: 1, finalRechecks: census.rechecks, attentionIds: census.attentionIds, plannerPtyVisits: census.plannerPtyVisits, driverReads: census.driverReads}))
   expect(census.inputReads).toBe(1)
-  console.log('BENCH final-global-input-copies', JSON.stringify({ head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3 + extraSplits, targetTabPtys: 1 + extraSplits, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
-  console.log('BENCH final-foreground-copies', JSON.stringify({head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
+  console.log('BENCH final-global-input-copies', JSON.stringify({ head: '8b158734cf68241878246ef605134392cbd845ac', finalRechecks: census.rechecks, targetPanes: 1, liveDrivers: n * 3 + extraSplits, targetTabPtys: 1 + extraSplits, driverEntriesCopied: census.driverCopies, inputHistory: n * 7.5 + 1, inputEntriesCopied: census.inputCopies, pendingInputs: 1, driverReads: census.driverReads, inputReads: census.inputReads }))
+  console.log('BENCH final-foreground-copies', JSON.stringify({head: '8b158734cf68241878246ef605134392cbd845ac', historyTabs: n * 7.5, finalRechecks: census.rechecks, entriesCopied: census.foregroundCopies, targetTabs: census.plannerTabs, baseFinalCallbacks: 0}))
   expect(census.statusVisits).toBe(2)
   expect(census.bindingCopies).toBe(1)
   expect(census.boundaryCopies).toBe(1)
   expect(census.plannerStatuses).toBe(1)
   expect(census.plannerTabs).toBe(1)
   expect(census.tabVisits).toBe(0)
-  expect(census.ownerPtyChecks).toBe(owner === 'ambiguous' && churnDuringAdmission ? n + extraSplits : 0)
-  console.log('BENCH final-recheck', JSON.stringify({ head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
+  expect(census.ownerPtyChecks).toBe(0)
+  console.log('BENCH final-recheck', JSON.stringify({ head: '8b158734cf68241878246ef605134392cbd845ac', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
   census.changeDuringAdmission = true
@@ -259,3 +259,22 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
 
 
 
+
+it.each([100,1000])('position lookup relearns after teardown and capacity eviction, list=%i',async n=>{
+ const {ReplacedListLookup}=await import('./replaced-list-lookup')
+ let visits=0
+ const lookup=new ReplacedListLookup<string>(id=>{visits++;return id})
+ const list=Array.from({length:n},(_,i)=>'small-'+i)
+ expect(lookup.find(list,'small-'+(n-1))).toBe('small-'+(n-1))
+ visits=0
+ for(let i=0;i<10;i++)expect(lookup.find(list,'small-'+(n-1))).toBe('small-'+(n-1))
+ expect(visits).toBe(10)
+ lookup.clear();visits=0
+ expect(lookup.find(list,'small-'+(n-1))).toBe('small-'+(n-1));expect(visits).toBe(n+1)
+ const wide=Array.from({length:5000},(_,i)=>'wide-'+i)
+ expect(lookup.find(wide,'wide-4999')).toBe('wide-4999')
+ visits=0
+ expect(lookup.find(list,'small-'+(n-1))).toBe('small-'+(n-1));expect(visits).toBe(n+1)
+ expect(lookup.find(list,'absent')).toBeUndefined()
+ console.log('BENCH lookup-recovery',JSON.stringify({head:'8b158734cf68241878246ef605134392cbd845ac',list:n,warmKeyReadsPerLookup:1,clearRelearnVisits:n,capacityRelearnVisits:n,absentStillAbsent:true}))
+})
