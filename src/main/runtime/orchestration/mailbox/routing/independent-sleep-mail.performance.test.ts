@@ -49,7 +49,7 @@ function mount(count: number, owed: boolean, manual = true) {
   const initialGraph = runtime.syncWindowGraph(1, { tabs: [], leaves: [] })
   runtime.retrySleptMailboxWakes()
   return { db, runtime, records, mailboxes, bell, initialGraph,
-    empty: () => { records = {}; storeWritten?.('local') } }
+    touchSession: () => storeWritten?.('local'), empty: () => { records = {}; storeWritten?.('local') } }
 }
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
 
@@ -467,5 +467,84 @@ it.each([100,1000])('archive pruning extra leaf reads at %i unrelated panes',asy
   }
   expect({calls,visits}).toEqual({calls:10,visits:10*n})
   console.log('BENCH archive-pruning',JSON.stringify({head:HEAD,leaves:n,exits:10,newSleptPaneProjectionCalls:calls,extraLeafVisitsPerExit:visits/10}))
+ }finally{m.runtime.setNotifier(null);m.db.close()}
+},120000)
+
+
+it.each([100,1000])('retained wake owner rechecks probe %i historical Runs',async n=>{
+ vi.useFakeTimers({toFake:['setTimeout','Date']})
+ const m=mount(1,false,false)
+ try{
+  await m.initialGraph;await vi.advanceTimersByTimeAsync(5000)
+  const pane=Object.keys(m.records)[0], record=m.records[pane]
+  const runs=Array.from({length:n},(_,i)=>m.db.createRun({objective:'old-'+i,coordinatorHandle:null,coordinatorPaneKey:pane}))
+  await flush()
+  const r=m.runtime as any
+  const prepare=m.db.db.prepare.bind(m.db.db)
+  let probes=0,queries=0,rows=0
+  m.db.db.function('perf_owner_probe',(id:unknown)=>{probes++;return id})
+  vi.spyOn(m.db.db,'prepare').mockImplementation((sql:string)=>{
+   if(!sql.includes('FROM runs INDEXED BY idx_runs_coordinator_pane_leaf'))return prepare(sql)
+   queries++
+   const stmt=prepare(sql.replaceAll("'run:' || runs.id","'run:' || perf_owner_probe(runs.id)"))
+   return new Proxy(stmt,{get(target,key){if(key==='all')return (...args:any[])=>{const found=target.all(...args);rows+=found.length;return found};const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value}})
+  })
+  r.mailWakeAttempts.claim(record)
+  r.publishSleepingMail({panes:[pane]});await flush()
+  const empty={queries,rows,probes}
+  expect(empty).toEqual({queries:1,rows:0,probes:n})
+  m.db.insertMessage({runId:runs[0].id,from:'worker',to:'run:'+runs[0].id,subject:'historical'})
+  await flush()
+  queries=rows=probes=0
+  r.mailWakeAttempts.claim(record)
+  r.publishSleepingMail({panes:[pane]});await flush()
+  expect({queries,rows,probes}).toEqual({queries:1,rows:1,probes:n})
+  console.log('BENCH retained-owner-history',JSON.stringify({head:HEAD,runs:n,empty,historical:{queries,rows,probes}}))
+ }finally{m.empty();await flush();m.runtime.setNotifier(null);m.db.close()}
+},120000)
+
+it.each([100,1000])('unmounted read after unrelated graph title replacement at %i leaves',async n=>{
+ vi.useFakeTimers({toFake:['setTimeout','Date']})
+ const m=mount(1,false,false)
+ try{
+  await m.initialGraph
+  const leaves=Array.from({length:n},(_,i)=>({tabId:'other-'+i,worktreeId:'folder:other',leafId:`${String(i+10000).padStart(8,'0')}-1111-4111-8111-111111111111`,paneRuntimeId:1,ptyId:null}))
+  const tabs=leaves.map(l=>({tabId:l.tabId,worktreeId:l.worktreeId,title:'Other',activeLeafId:l.leafId,layout:null}))
+  const r=m.runtime as any
+  let visits=0
+  const find=r.leavesByLeafId.find.bind(r.leavesByLeafId)
+  vi.spyOn(r.leavesByLeafId,'find').mockImplementation((graph:any,id:string)=>{
+   const iter=graph[Symbol.iterator].bind(graph)
+   const probe=vi.spyOn(graph,Symbol.iterator).mockImplementation(function*(){for(const row of {[Symbol.iterator]:iter}){visits++;yield row}})
+   try{return find(graph,id)}finally{probe.mockRestore()}
+  })
+  const counts=[]
+  for(let i=0;i<10;i++){
+   await m.runtime.syncWindowGraph(1,{tabs:tabs.map((t,j)=>j===0?{...t,title:'Other '+i}:t),leaves})
+   visits=0
+   expect((await m.runtime.readTerminal('term_0',{})).status).toBe('running')
+   const cold=visits;visits=0
+   expect((await m.runtime.readTerminal('term_0',{})).status).toBe('running')
+   counts.push({cold,warm:visits})
+  }
+  expect(counts).toEqual(Array.from({length:10},()=>({cold:n,warm:0})))
+  console.log('BENCH unmounted-graph-invalidations',JSON.stringify({head:HEAD,leaves:n,titlePublications:10,perRead:counts[0]}))
+ }finally{m.empty();await flush();m.runtime.setNotifier(null);m.db.close()}
+},120000)
+
+it.each([100,1000])('empty sleep watcher enumerates %i saved hosts on each session write',async n=>{
+ vi.useFakeTimers({toFake:['setTimeout','Date']})
+ const m=mount(0,false)
+ try{
+  await m.initialGraph;await vi.advanceTimersByTimeAsync(5000)
+  const {SessionHostPartitionOperations}=await import('../../../../persistence/loading-store/workspace-sessions/session-host-partitions')
+  let visited=0
+  const saved=new Proxy(Object.fromEntries(Array.from({length:n},(_,i)=>['host-'+i,{}])),{ownKeys(target){const keys=Reflect.ownKeys(target);visited+=keys.length;return keys}})
+  const partitions=new SessionHostPartitionOperations({state:{workspaceSessionsByHostId:saved}} as any,{} as any,{} as any)
+  const r=m.runtime as any
+  vi.spyOn(r.store,'getWorkspaceSessionHostIds').mockImplementation(()=>partitions.getWorkspaceSessionHostIds())
+  for(let i=0;i<10;i++)m.touchSession()
+  expect(visited).toBe(10*n)
+  console.log('BENCH empty-session-host-enumeration',JSON.stringify({head:HEAD,savedHosts:n,sessionWrites:10,sleepRecords:0,hostKeysVisitedPerWrite:visited/10}))
  }finally{m.runtime.setNotifier(null);m.db.close()}
 },120000)

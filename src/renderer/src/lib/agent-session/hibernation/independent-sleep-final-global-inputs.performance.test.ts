@@ -84,7 +84,7 @@ import { setDriverForPty, hydrateDrivers } from '../../pane-manager/mobile-drive
 
 afterEach(() => { flushTerminalInputActivity(); hydrateDrivers([]); stopAgentHibernationCoordinator(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
-const populations = [100, 1000].flatMap(n => [false, true].flatMap(churnDuringAdmission => [0, n - 1].map(extraSplits => ({ n, extraSplits, concentrated: churnDuringAdmission, churnDuringAdmission, owner: 'non-runtime' as const }))))
+const populations = [100, 1000].flatMap(n => [false, true].flatMap(churnDuringAdmission => [0, n - 1].map(extraSplits => ({ n, extraSplits, concentrated: churnDuringAdmission, churnDuringAdmission, owner: 'non-runtime' as 'non-runtime' | 'ambiguous' })))).concat([100,1000].flatMap(n=>[0,n-1].map(extraSplits=>({n,extraSplits,concentrated:true,churnDuringAdmission:true,owner:'ambiguous' as const}))))
 it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated, owner=$owner, extraSplits=$extraSplits, admissionChurn=$churnDuringAdmission', async ({n, concentrated, owner, extraSplits, churnDuringAdmission}) => {
   vi.useFakeTimers()
   vi.setSystemTime(1)
@@ -232,7 +232,7 @@ it.each(populations)('real final sleep recheck at $n, concentrated=$concentrated
   expect(census.plannerStatuses).toBe(1)
   expect(census.plannerTabs).toBe(1)
   expect(census.tabVisits).toBe(0)
-  expect(census.ownerPtyChecks).toBe(0)
+  expect(census.ownerPtyChecks).toBe(owner === 'ambiguous' && churnDuringAdmission ? n + extraSplits : 0)
   console.log('BENCH final-recheck', JSON.stringify({ head: 'd0fb8d41639d2d853d42922f7de92e2b7a26df1c', owner, agents: n, bindings: 3*n, workspaces: Object.keys(tabsByWorktree).length, siblingTabs: concentrated ? n : 1, producerTabVisits: census.tabVisits, ownerPtyChecks: census.ownerPtyChecks,
     finalRechecks: census.rechecks, producerStatusReads: census.statusVisits, bindingEntriesCopied: census.bindingCopies,
     boundaryEntriesCopied: census.boundaryCopies, plannerStatusVisits: census.plannerStatuses, plannerTabs: census.plannerTabs }))
